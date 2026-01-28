@@ -1,0 +1,20 @@
+{
+    "users": {
+        "admin": {
+            "senha": "admin123",
+            "perfil": "Administrador"
+        }
+    },
+    "equipes": {
+        "Meninos": {
+            "pontos": 0,
+            "valor": 0
+        },
+        "Meninas": {
+            "pontos": 0,
+            "valor": 0
+        }
+    },
+    "eventos": [],
+    "financeiro": []
+}
