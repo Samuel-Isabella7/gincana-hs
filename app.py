@@ -1,11 +1,16 @@
+from supabase import create_client
+import os
 from flask import Flask, render_template_string, request, redirect, session
 from functools import wraps
 import json, os
 from datetime import datetime
 
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 app = Flask(__name__)
 app.secret_key = "gincana_hs"
-
 DATA_FILE = "data.json"
 META = 2000
 
@@ -23,16 +28,28 @@ DEFAULT_DATA = {
     "eventos": [],
     "financeiro": []
 }
-
 def load_data():
-    if not os.path.exists(DATA_FILE):
-        save_data(DEFAULT_DATA)
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        users = supabase.table("users").select("*").execute().data
+        equipes = supabase.table("equipes").select("*").execute().data
+        eventos = supabase.table("eventos").select("*").execute().data
+        financeiro = supabase.table("financeiro").select("*").execute().data
 
-def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+        return {
+            "users": {u["user"]: {"senha": u["senha"], "perfil": u["perfil"]} for u in users},
+            "equipes": {e["nome"]: {"pontos": e["pontos"], "valor": e["valor"]} for e in equipes},
+            "eventos": eventos,
+            "financeiro": financeiro
+        }
+
+    except Exception as e:
+        # fallback seguro
+        if not os.path.exists(DATA_FILE):
+            save_data(DEFAULT_DATA)
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+
 
 # =====================
 # AUTH
@@ -50,6 +67,34 @@ def login_required(perfis=None):
             return f(*args, **kwargs)
         return wrapper
     return decorator
+def save_data(data):
+    # USERS
+    supabase.table("users").delete().neq("user", "").execute()
+    for u, v in data["users"].items():
+        supabase.table("users").insert({
+            "user": u,
+            "senha": v["senha"],
+            "perfil": v["perfil"]
+        }).execute()
+
+    # EQUIPES
+    supabase.table("equipes").delete().neq("nome", "").execute()
+    for e, v in data["equipes"].items():
+        supabase.table("equipes").insert({
+            "nome": e,
+            "pontos": v["pontos"],
+            "valor": v["valor"]
+        }).execute()
+
+    # EVENTOS
+    supabase.table("eventos").delete().neq("id", 0).execute()
+    for ev in data["eventos"]:
+        supabase.table("eventos").insert(ev).execute()
+
+    # FINANCEIRO
+    supabase.table("financeiro").delete().neq("id", 0).execute()
+    for f in data["financeiro"]:
+        supabase.table("financeiro").insert(f).execute()
 
 # =====================
 # LOGIN
