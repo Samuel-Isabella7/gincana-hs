@@ -143,6 +143,43 @@ def financeiro():
 def logout():
     session.clear()
     return redirect("/")
+# =====================
+# USUÁRIOS (SUPABASE)
+# =====================
+@app.route("/usuarios", methods=["GET", "POST"])
+@login_required(["Administrador", "Líder"])
+def usuarios():
+    if request.method == "POST":
+        supabase.table("users").insert({
+            "username": request.form["user"],
+            "senha": request.form["senha"],
+            "perfil": request.form["perfil"]
+        }).execute()
+
+        return redirect("/usuarios")
+
+    users = supabase.table("users").select("username, perfil").execute().data
+
+    return render_template_string("""
+    <h2>Usuários</h2>
+
+    <form method="post">
+        <input name="user" placeholder="Usuário" required>
+        <input name="senha" placeholder="Senha" required>
+        <select name="perfil">
+            <option>Administrador</option>
+            <option>Líder</option>
+            <option>Membro</option>
+        </select>
+        <button>Criar usuário</button>
+    </form>
+
+    <hr>
+
+    {% for u in users %}
+        <p><b>{{u.username}}</b> — {{u.perfil}}</p>
+    {% endfor %}
+    """, users=users)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
