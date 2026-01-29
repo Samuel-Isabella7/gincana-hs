@@ -3,7 +3,11 @@ from functools import wraps
 from datetime import datetime
 from supabase import create_client
 import os
-
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise Exception("Variáveis do Supabase não configuradas")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # =====================
 # CONFIG
 # =====================
@@ -12,10 +16,7 @@ app.secret_key = "gincana_hs"
 
 META = 2000
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =====================
 # AUTH
