@@ -2,14 +2,16 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
+import { BancoContratoModal } from "./BancoContratoModal";
 import { BoletoModal } from "./BoletoModal";
 import { ContaCorrenteModal } from "./ContaCorrenteModal";
 import { DescontoModal } from "./DescontoModal";
 import { ParcelamentoModal } from "./ParcelamentoModal";
+import { SeloContrato } from "./SeloContrato";
 import { ROTULOS_STATUS, StatusSelo } from "./StatusSelo";
 import { useToast } from "@/components/ui/Toasts";
 import { contratoVigente } from "@/lib/desconto";
-import { dataBr, formatarCnpj, moeda, percentual } from "@/lib/format";
+import { dataBr, formatarCnpj, moeda } from "@/lib/format";
 import type {
   Config,
   ContaCorrente,
@@ -19,7 +21,13 @@ import type {
   Titulo,
 } from "@/lib/types";
 
-type ModalAberto = "desconto" | "boleto" | "conta" | "parcelamento" | null;
+type ModalAberto =
+  | "desconto"
+  | "boleto"
+  | "conta"
+  | "banco-contrato"
+  | "parcelamento"
+  | null;
 
 export function TitulosView({
   titulos,
@@ -292,6 +300,13 @@ export function TitulosView({
           </button>
           <button
             className="btn"
+            title="Move cada título para a conta cadastrada no contrato do cliente"
+            onClick={() => setModal("banco-contrato")}
+          >
+            Aplicar banco do contrato
+          </button>
+          <button
+            className="btn"
             disabled={selecionados.length !== 1}
             title={
               selecionados.length !== 1 ? "Selecione exatamente 1 título para parcelar" : undefined
@@ -358,11 +373,7 @@ export function TitulosView({
                     <td className="max-w-[250px]">
                       <div className="flex items-center gap-1.5">
                         <span className="truncate font-medium">{titulo.clienteNome}</span>
-                        {contrato && (
-                          <span className="selo-contrato">
-                            Contrato −{percentual(contrato.percentualDesconto)}
-                          </span>
-                        )}
+                        {contrato && <SeloContrato contrato={contrato} />}
                       </div>
                       <div className="mono text-[10.5px] text-fraco">
                         {formatarCnpj(titulo.clienteCnpj)}
@@ -490,6 +501,16 @@ export function TitulosView({
       {modal === "conta" && (
         <ContaCorrenteModal
           titulos={selecionadosTitulos}
+          contas={contas}
+          onFechar={() => setModal(null)}
+          onConcluido={aoConcluir}
+        />
+      )}
+
+      {modal === "banco-contrato" && (
+        <BancoContratoModal
+          titulos={selecionadosTitulos}
+          contratos={contratos}
           contas={contas}
           onFechar={() => setModal(null)}
           onConcluido={aoConcluir}

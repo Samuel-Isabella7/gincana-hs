@@ -19,6 +19,18 @@ Efeito: o título **não é quitado**. O saldo cai apenas o valor do desconto e 
 
 O cálculo é sempre refeito no servidor a partir do percentual do contrato cadastrado; o valor que vem da tela nunca é aceito como verdade para clientes com contrato.
 
+## Clientes especiais: faixas e banco
+
+Um contrato tem **zero ou mais faixas de desconto**. Cada faixa tem rótulo, percentual, categoria (`geral` / `secos` / `congelados`) e, se precisar, a praça (UF):
+
+- **Uma faixa** → aplicada automaticamente (ex: Zaffari 10%).
+- **Várias faixas** → o operador escolhe no modal de desconto, por título, com botões para aplicar a categoria ao lote inteiro (ex: PDA secos SP 23,01% / secos RJ 23% / congelados 15%; Mambo secos 9,5% / congelados 9%; Shibata secos 8% / congelados 5%). Sem faixa escolhida o sistema **bloqueia** o lançamento em vez de chutar o percentual.
+- **Nenhuma faixa** → contrato só fixa o banco de cobrança (caso Smart Break). Tentar descontar devolve "contrato sem desconto — este cliente só tem banco definido".
+
+O campo **banco do contrato** com "sempre mover o título para esta conta" faz o desconto já trocar a conta corrente do título, e a ação em lote **Aplicar banco do contrato** ajusta a conta de qualquer seleção sem tocar em valores — é o caminho para quem só precisa estar sempre no mesmo banco.
+
+A carteira atual vive em [`src/dados/contratos-kalena.json`](src/dados/contratos-kalena.json). O botão **Importar lista de contratos** (tela Clientes especiais) compara o arquivo com o que já está cadastrado, casa cada linha com o cliente do Omie (por CNPJ, ou por nome ignorando Ltda/SA/Supermercado…) e com a conta corrente pelo nome do banco, e mostra o que será criado, atualizado ou está pendente — nada é gravado antes de você aplicar. Editar a lista no arquivo e reimportar é o jeito de propagar mudanças de percentual.
+
 ## Funcionalidades
 
 - **Títulos a receber** com filtros (cliente/CNPJ/documento, período de vencimento, status, banco, saldo mínimo, somente clientes especiais, somente sem boleto), 4 indicadores no topo, seleção múltipla, paginação com 50/100/200 por página e barra de ações em lote.

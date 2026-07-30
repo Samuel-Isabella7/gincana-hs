@@ -17,6 +17,7 @@ import {
 import type {
   EntradaDescontos,
   EntradaParcelamento,
+  ItemBancoContrato,
   ResultadoParcelamento,
 } from "./operacoes-tipos";
 import { gerarParcelas, MAX_PARCELAS, MIN_PARCELAS } from "./parcelamento";
@@ -34,6 +35,7 @@ import type { Aprovacao, PoliticaOriginal, ResultadoItem, Titulo } from "./types
 export type {
   EntradaDescontos,
   EntradaParcelamento,
+  ItemBancoContrato,
   ItemDesconto,
   ResultadoParcelamento,
 } from "./operacoes-tipos";
@@ -86,6 +88,8 @@ export async function aplicarDescontos(
 
     const previa = calcularPrevia(titulo, contrato, {
       pisoSaldo: config.pisoSaldo,
+      regraId: item.regraId,
+      categoria: item.categoria,
       percentualManual: item.percentualManual,
       valorManual: item.valorManual,
     });
@@ -184,8 +188,16 @@ export async function aplicarDescontos(
         2,
       )} lançado. Restam R$ ${previa.saldoFinal.toFixed(2)} a receber.`;
 
-      if (entrada.trocarConta && entrada.contaCorrenteId) {
-        await alterarContaCorrente(item.tituloId, entrada.contaCorrenteId);
+      // Troca escolhida na tela; senão, a conta obrigatória do contrato.
+      const contaDestino =
+        entrada.trocarConta && entrada.contaCorrenteId
+          ? entrada.contaCorrenteId
+          : contrato?.aplicarContaSempre && contrato.contaCorrentePreferencial
+            ? contrato.contaCorrentePreferencial
+            : null;
+
+      if (contaDestino && contaDestino !== item.contaCorrenteTituloId) {
+        await alterarContaCorrente(item.tituloId, contaDestino);
         mensagem += " Conta corrente do título atualizada.";
       }
 
@@ -383,6 +395,79 @@ export async function trocarContaCorrente(
         erro: mensagem,
       });
       resultados.push({ tituloId, sucesso: false, mensagem });
+    }
+  }
+
+  return resultados;
+}
+
+/**
+ * Move cada título para a conta corrente definida no contrato do cliente.
+ * Atende quem não tem desconto mas precisa ser cobrado sempre no mesmo banco.
+ */
+export async function aplicarBancoDoContrato(
+  sessao: Sessao,
+  itens: ItemBancoContrato[],
+): Promise<ResultadoItem[]> {
+  const [contratos, config] = await Promise.all([listarContratos(), lerConfig()]);
+  const resultados: ResultadoItem[] = [];
+
+  for (const item of itens) {
+    const contrato = contratoVigente(contratos, item.clienteId);
+    const destino = contrato?.contaCorrentePreferencial ?? null;
+
+    if (!destino) {
+      resultados.push({
+        tituloId: item.tituloId,
+        sucesso: false,
+        mensagem: contrato
+          ? "Contrato sem conta corrente preferencial cadastrada."
+          : "Cliente sem contrato cadastrado — use a troca manual de conta.",
+      });
+      continue;
+    }
+
+    if (destino === item.contaCorrenteTituloId) {
+      resultados.push({
+        tituloId: item.tituloId,
+        sucesso: true,
+        mensagem: "Já está na conta do contrato — nada a fazer.",
+      });
+      continue;
+    }
+
+    try {
+      const { param, resposta } = await alterarContaCorrente(item.tituloId, destino);
+      await registrarEvento({
+        usuario: sessao.usuario,
+        acao: "conta_corrente",
+        entidade: `titulo:${item.tituloId}`,
+        descricao: `Conta corrente ajustada para a do contrato de ${
+          item.clienteNome ?? item.clienteId
+        } (${destino})`,
+        payloadEnviado: param,
+        respostaOmie: resposta,
+        sucesso: true,
+        erro: null,
+      });
+      resultados.push({
+        tituloId: item.tituloId,
+        sucesso: true,
+        mensagem: "Conta corrente do contrato aplicada.",
+      });
+    } catch (erro) {
+      const mensagem = mensagemErro(erro);
+      await registrarEvento({
+        usuario: sessao.usuario,
+        acao: "conta_corrente",
+        entidade: `titulo:${item.tituloId}`,
+        descricao: "Falha ao aplicar a conta corrente do contrato",
+        payloadEnviado: { item, destino, contaPadrao: config.contaCorrentePadrao },
+        respostaOmie: null,
+        sucesso: false,
+        erro: mensagem,
+      });
+      resultados.push({ tituloId: item.tituloId, sucesso: false, mensagem });
     }
   }
 

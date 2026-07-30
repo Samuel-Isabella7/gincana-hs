@@ -13,10 +13,21 @@ export interface ItemDesconto {
   vencimento?: string;
   boletoEmitido?: boolean;
   contaCorrenteTituloId?: number | null;
+  /** Faixa do contrato escolhida na tela (categoria/praça). */
+  regraId?: string;
+  categoria?: "geral" | "secos" | "congelados";
   /** Desconto manual (usado só quando o cliente não tem contrato vigente). */
   valorManual?: number;
   percentualManual?: number;
   justificativa?: string;
+}
+
+/** Item da ação "aplicar banco do contrato" (cliente sem desconto, só banco). */
+export interface ItemBancoContrato {
+  tituloId: number;
+  clienteId: number;
+  clienteNome?: string;
+  contaCorrenteTituloId?: number | null;
 }
 
 export interface EntradaDescontos {

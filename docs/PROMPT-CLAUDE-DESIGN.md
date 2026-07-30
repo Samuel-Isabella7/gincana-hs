@@ -56,10 +56,12 @@ Ao clicar, abre um modal de **pré-visualização antes de gravar nada**:
 
 ### 3. Clientes especiais (descontos de contrato)
 
-CRUD em tabela: cliente (busca com autocomplete puxando do Omie), CNPJ, **percentual fixo de desconto**, vigência (início/fim), teto de desconto em R$ por título (opcional), conta corrente preferencial (opcional), ativo/inativo, observações.
+CRUD em tabela: cliente (busca com autocomplete puxando do Omie), CNPJ, grupo/rede, **faixas de desconto**, vigência (início/fim), teto de desconto em R$ por título (opcional), banco/conta corrente do contrato com a opção "sempre mover o título para esta conta", ativo/inativo, observações.
 
-- Validação: percentual entre 0 e 100, com 2 decimais; não permitir dois contratos vigentes sobrepostos para o mesmo cliente.
-- Histórico de alterações do percentual visível no detalhe do cliente (quem mudou, quando, de quanto para quanto).
+- **Faixas**: cada contrato tem zero ou mais faixas, com rótulo, percentual, categoria (geral/secos/congelados) e praça (UF). Uma faixa é aplicada automaticamente; com várias, o operador escolhe no modal de desconto e o sistema bloqueia o lançamento até a escolha; com nenhuma, o contrato só fixa o banco de cobrança.
+- Validação: percentual entre 0 e 100, com 2 decimais; não permitir dois contratos vigentes sobrepostos para o mesmo cliente; contrato sem faixa exige conta corrente.
+- Histórico de alterações visível no detalhe do cliente (quem mudou, quando, de quanto para quanto).
+- Importação da lista de clientes especiais com prévia: casa cada linha com o cliente do Omie e com a conta corrente pelo nome do banco, e mostra o que será criado, atualizado ou está pendente.
 
 ### 4. Parcelamento de boleto
 

@@ -7,11 +7,17 @@ import {
   ResultadoLote,
   type ProgressoLote,
 } from "@/components/ui/ResultadoLote";
-import { calcularPrevia, contratoVigente, totalizarPrevias } from "@/lib/desconto";
+import {
+  calcularPrevia,
+  contratoVigente,
+  escolherRegra,
+  totalizarPrevias,
+} from "@/lib/desconto";
 import { dataBr, hoje, moeda, percentual } from "@/lib/format";
 import { enviarSequencial, postJson } from "@/lib/lote";
 import type { ItemDesconto } from "@/lib/operacoes-tipos";
 import type {
+  CategoriaProduto,
   Config,
   ContaCorrente,
   Contrato,
@@ -52,6 +58,8 @@ export function DescontoModal({
   const [observacao, setObservacao] = useState("");
   const [manuais, setManuais] = useState<Record<number, EntradaManual>>({});
   const [ignorados, setIgnorados] = useState<number[]>([]);
+  /** Faixa do contrato escolhida por título (secos/congelados/praça). */
+  const [regras, setRegras] = useState<Record<number, string>>({});
   const [progresso, setProgresso] = useState<ProgressoLote>({ atual: 0, total: 0 });
   const [resultados, setResultados] = useState<ResultadoItem[]>([]);
   const [erro, setErro] = useState<string | null>(null);
@@ -65,12 +73,43 @@ export function DescontoModal({
     [titulos, contratos, data],
   );
 
+  const comContrato = useMemo(() => agrupados.filter((g) => g.contrato), [agrupados]);
+
   const previasContrato = useMemo(
     () =>
-      agrupados
-        .filter((g) => g.contrato)
-        .map((g) => calcularPrevia(g.titulo, g.contrato, { pisoSaldo: config.pisoSaldo })),
-    [agrupados, config.pisoSaldo],
+      comContrato.map((g) =>
+        calcularPrevia(g.titulo, g.contrato, {
+          pisoSaldo: config.pisoSaldo,
+          regraId: regras[g.titulo.id],
+        }),
+      ),
+    [comContrato, config.pisoSaldo, regras],
+  );
+
+  /** Define a faixa de todos os títulos cujo contrato tem essa categoria. */
+  function aplicarCategoriaEmTodos(categoria: CategoriaProduto) {
+    setRegras((atual) => {
+      const proximo = { ...atual };
+      for (const { titulo, contrato } of comContrato) {
+        const regra =
+          contrato!.regras.find((r) => r.categoria === categoria) ??
+          escolherRegra(contrato);
+        if (regra) proximo[titulo.id] = regra.id;
+      }
+      return proximo;
+    });
+  }
+
+  const categoriasDisponiveis = useMemo(() => {
+    const conjunto = new Set<CategoriaProduto>();
+    for (const { contrato } of comContrato) {
+      for (const regra of contrato!.regras) conjunto.add(regra.categoria);
+    }
+    return [...conjunto];
+  }, [comContrato]);
+
+  const precisaEscolha = previasContrato.some(
+    (p) => p.bloqueio?.startsWith("Escolha a faixa"),
   );
 
   const semContrato = useMemo(() => agrupados.filter((g) => !g.contrato), [agrupados]);
@@ -101,7 +140,10 @@ export function DescontoModal({
   const itens = useMemo<ItemDesconto[]>(() => {
     const doContrato = previasAtivas
       .filter((p) => !p.bloqueio)
-      .map((p) => montarItem(titulos, p.tituloId));
+      .map((p) => ({
+        ...montarItem(titulos, p.tituloId),
+        regraId: p.regraId ?? undefined,
+      }));
 
     const dosManuais = previasManuais
       .filter((p) => !p.bloqueio)
@@ -279,9 +321,32 @@ export function DescontoModal({
             />
           </div>
 
-          <p className="eyebrow mb-1.5">
-            Com contrato cadastrado — {previasContrato.length} título(s)
-          </p>
+          <div className="mb-1.5 flex flex-wrap items-center gap-2">
+            <p className="eyebrow">
+              Com contrato cadastrado — {previasContrato.length} título(s)
+            </p>
+            {categoriasDisponiveis.length > 1 && (
+              <div className="ml-auto flex items-center gap-1.5">
+                <span className="text-[11px] text-fraco">aplicar a todos:</span>
+                {categoriasDisponiveis.map((categoria) => (
+                  <button
+                    key={categoria}
+                    className="btn-mini"
+                    onClick={() => aplicarCategoriaEmTodos(categoria)}
+                  >
+                    {categoria}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {precisaEscolha && (
+            <p className="aviso aviso-alerta mb-2">
+              Alguns clientes têm mais de uma faixa (secos/congelados ou praça). Escolha a
+              faixa na coluna correspondente antes de gravar.
+            </p>
+          )}
           {previasContrato.length === 0 ? (
             <p className="aviso aviso-alerta mb-5">
               Nenhum título da seleção pertence a cliente com contrato vigente.
@@ -294,7 +359,7 @@ export function DescontoModal({
                     <th className="w-9 pl-3" />
                     <th>Cliente</th>
                     <th>Documento</th>
-                    <th className="text-right">Vencimento</th>
+                    <th>Faixa</th>
                     <th className="text-right">Saldo atual</th>
                     <th className="text-right">% contrato</th>
                     <th className="text-right">Desconto</th>
@@ -304,6 +369,10 @@ export function DescontoModal({
                 <tbody>
                   {previasContrato.map((previa) => {
                     const marcado = !ignorados.includes(previa.tituloId) && !previa.bloqueio;
+                    const contrato = comContrato.find(
+                      (g) => g.titulo.id === previa.tituloId,
+                    )?.contrato;
+                    const opcoes = contrato?.regras ?? [];
                     return (
                       <tr key={previa.tituloId} className={marcado ? "selecionada" : undefined}>
                         <td className="pl-3">
@@ -333,8 +402,37 @@ export function DescontoModal({
                             </div>
                           )}
                         </td>
-                        <td className="mono text-[12px]">{previa.documento}</td>
-                        <td className="num">{dataBr(previa.vencimento)}</td>
+                        <td className="mono text-[12px]">
+                          {previa.documento}
+                          <span className="block text-[10.5px] text-fraco">
+                            venc. {dataBr(previa.vencimento)}
+                          </span>
+                        </td>
+                        <td>
+                          {opcoes.length > 1 ? (
+                            <select
+                              className="campo w-[150px]"
+                              value={previa.regraId ?? ""}
+                              onChange={(e) =>
+                                setRegras((atual) => ({
+                                  ...atual,
+                                  [previa.tituloId]: e.target.value,
+                                }))
+                              }
+                            >
+                              <option value="">escolher…</option>
+                              {opcoes.map((regra) => (
+                                <option key={regra.id} value={regra.id}>
+                                  {regra.rotulo} · {percentual(regra.percentual)}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-[11.5px] text-suave">
+                              {previa.regraRotulo ?? "—"}
+                            </span>
+                          )}
+                        </td>
                         <td className="num">{moeda(previa.saldoAtual)}</td>
                         <td className="num font-semibold text-positivo">
                           {percentual(previa.percentual)}

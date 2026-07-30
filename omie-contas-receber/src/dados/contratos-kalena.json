@@ -1,0 +1,106 @@
+{
+  "atualizadoEm": "2026-07-30",
+  "origem": "Lista de clientes especiais informada pela diretoria",
+  "observacaoGeral": "Contratos com mais de uma faixa (secos/congelados ou praça) não têm faixa padrão: o operador escolhe a faixa no modal de desconto, por isso o lançamento nunca chuta o percentual.",
+  "contratos": [
+    {
+      "nome": "Zaffari",
+      "banco": "Daycoval",
+      "regras": [{ "rotulo": "geral", "categoria": "geral", "uf": null, "percentual": 10 }]
+    },
+    {
+      "nome": "Smart Break",
+      "banco": "Daycoval",
+      "regras": [],
+      "observacoes": "Não possui desconto — deve ser cobrado sempre no Daycoval."
+    },
+    {
+      "nome": "PDA",
+      "banco": "Daycoval",
+      "regras": [
+        { "rotulo": "secos SP", "categoria": "secos", "uf": "SP", "percentual": 23.01 },
+        { "rotulo": "secos RJ", "categoria": "secos", "uf": "RJ", "percentual": 23 },
+        { "rotulo": "congelados", "categoria": "congelados", "uf": null, "percentual": 15 }
+      ]
+    },
+    {
+      "nome": "Zona Sul",
+      "banco": "Itaú RJ",
+      "regras": [{ "rotulo": "geral RJ", "categoria": "geral", "uf": "RJ", "percentual": 3.5 }]
+    },
+    {
+      "nome": "Sodexo",
+      "banco": "Daycoval",
+      "regras": [{ "rotulo": "geral", "categoria": "geral", "uf": null, "percentual": 15 }]
+    },
+    {
+      "nome": "Carrefour",
+      "banco": "Daycoval",
+      "regras": [{ "rotulo": "geral", "categoria": "geral", "uf": null, "percentual": 12.08 }]
+    },
+    {
+      "nome": "Mambo",
+      "banco": "Daycoval",
+      "regras": [
+        { "rotulo": "secos", "categoria": "secos", "uf": null, "percentual": 9.5 },
+        { "rotulo": "congelados", "categoria": "congelados", "uf": null, "percentual": 9 }
+      ]
+    },
+    {
+      "nome": "Master Sonda",
+      "banco": "Itaú Garantia",
+      "regras": [{ "rotulo": "geral", "categoria": "geral", "uf": null, "percentual": 8 }]
+    },
+    {
+      "nome": "Verdemar",
+      "banco": "Itaú Garantia",
+      "regras": [{ "rotulo": "geral", "categoria": "geral", "uf": null, "percentual": 4 }]
+    },
+    {
+      "nome": "Chama",
+      "banco": "Itaú Garantia",
+      "regras": [{ "rotulo": "geral", "categoria": "geral", "uf": null, "percentual": 5 }]
+    },
+    {
+      "nome": "Alabarce",
+      "banco": "Itaú Garantia",
+      "regras": [{ "rotulo": "geral", "categoria": "geral", "uf": null, "percentual": 7 }]
+    },
+    {
+      "nome": "Nutricar",
+      "banco": "Daycoval",
+      "regras": [{ "rotulo": "geral", "categoria": "geral", "uf": null, "percentual": 10 }]
+    },
+    {
+      "nome": "Violeta",
+      "banco": "Itaú SP",
+      "regras": [{ "rotulo": "geral SP", "categoria": "geral", "uf": "SP", "percentual": 5 }]
+    },
+    {
+      "nome": "Shibata",
+      "banco": "Itaú Garantia",
+      "regras": [
+        { "rotulo": "secos", "categoria": "secos", "uf": null, "percentual": 8 },
+        { "rotulo": "congelados", "categoria": "congelados", "uf": null, "percentual": 5 }
+      ]
+    },
+    {
+      "nome": "Hortifruti CD RJ",
+      "grupo": "Hortifruti / Natural da Terra / HNT",
+      "banco": "Itaú SP",
+      "regras": [{ "rotulo": "geral", "categoria": "geral", "uf": null, "percentual": 9.5 }]
+    },
+    {
+      "nome": "Natural da Terra",
+      "grupo": "Hortifruti / Natural da Terra / HNT",
+      "banco": "Itaú SP",
+      "regras": [{ "rotulo": "geral", "categoria": "geral", "uf": null, "percentual": 9.5 }]
+    },
+    {
+      "nome": "HNT",
+      "grupo": "Hortifruti / Natural da Terra / HNT",
+      "banco": "Itaú SP",
+      "regras": [{ "rotulo": "geral", "categoria": "geral", "uf": null, "percentual": 9.5 }]
+    }
+  ]
+}

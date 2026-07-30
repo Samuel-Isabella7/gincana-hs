@@ -43,18 +43,42 @@ export interface ClienteResumo {
   cnpj: string;
 }
 
-/** Cliente especial: percentual fixo de desconto negociado em contrato. */
+export type CategoriaProduto = "geral" | "secos" | "congelados";
+
+/**
+ * Uma faixa de desconto do contrato. Clientes com percentual diferente por
+ * categoria (secos/congelados) ou por praça (SP/RJ) têm uma regra para cada.
+ */
+export interface RegraDesconto {
+  id: string;
+  /** Como a regra aparece na tela, ex: "secos SP". */
+  rotulo: string;
+  percentual: number;
+  categoria: CategoriaProduto;
+  uf: string | null;
+  /** Regra sugerida quando o operador não escolhe outra. */
+  padrao: boolean;
+}
+
+/**
+ * Cliente especial. Pode ter uma ou mais regras de desconto — ou nenhuma, no
+ * caso de cliente que só precisa ser cobrado sempre em um banco específico.
+ */
 export interface Contrato {
   id: string;
   omieClienteId: number;
   nome: string;
   cnpj: string;
-  percentualDesconto: number;
+  /** Rede/grupo, quando várias razões sociais compartilham a negociação. */
+  grupo: string | null;
+  regras: RegraDesconto[];
   vigenciaInicio: string | null;
   vigenciaFim: string | null;
   /** Teto de desconto em R$ por título (opcional). */
   tetoDesconto: number | null;
   contaCorrentePreferencial: number | null;
+  /** Mover o título para a conta preferencial sempre que ele for operado. */
+  aplicarContaSempre: boolean;
   ativo: boolean;
   observacoes: string | null;
   criadoEm: string;

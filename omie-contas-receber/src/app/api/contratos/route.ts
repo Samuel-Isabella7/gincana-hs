@@ -1,5 +1,6 @@
 import { corpo, ok, respostaErro } from "@/lib/api";
 import { exigirSessaoApi } from "@/lib/auth";
+import { descreverRegras } from "@/lib/desconto";
 import { garantirGestor } from "@/lib/operacoes";
 import {
   listarContratos,
@@ -32,8 +33,8 @@ export async function POST(request: Request) {
       acao: "contrato",
       entidade: `contrato:${contrato.id}`,
       descricao: anterior
-        ? `Contrato de ${contrato.nome} atualizado: ${anterior.percentualDesconto}% -> ${contrato.percentualDesconto}%`
-        : `Contrato criado para ${contrato.nome} com ${contrato.percentualDesconto}%`,
+        ? `Contrato de ${contrato.nome} atualizado: ${descreverRegras(anterior)} -> ${descreverRegras(contrato)}`
+        : `Contrato criado para ${contrato.nome}: ${descreverRegras(contrato)}`,
       payloadEnviado: { anterior, novo: contrato },
       respostaOmie: null,
       sucesso: true,

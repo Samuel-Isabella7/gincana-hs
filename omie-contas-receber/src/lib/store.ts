@@ -11,6 +11,7 @@ import type {
   EventoAuditoria,
   Perfil,
   RegistroParcelamento,
+  RegraDesconto,
   StatusAprovacao,
   Usuario,
 } from "./types";
@@ -98,11 +99,13 @@ interface ContratoRow {
   omie_cliente_id: number;
   nome: string;
   cnpj: string;
-  percentual_desconto: number;
+  grupo: string | null;
+  regras: RegraDesconto[];
   vigencia_inicio: string | null;
   vigencia_fim: string | null;
   teto_desconto: number | null;
   conta_corrente_preferencial: number | null;
+  aplicar_conta_sempre: boolean;
   ativo: boolean;
   observacoes: string | null;
   criado_em: string;
@@ -115,7 +118,11 @@ function paraContrato(row: ContratoRow): Contrato {
     omieClienteId: Number(row.omie_cliente_id),
     nome: row.nome,
     cnpj: row.cnpj ?? "",
-    percentualDesconto: Number(row.percentual_desconto),
+    grupo: row.grupo,
+    regras: (row.regras ?? []).map((regra) => ({
+      ...regra,
+      percentual: Number(regra.percentual),
+    })),
     vigenciaInicio: row.vigencia_inicio,
     vigenciaFim: row.vigencia_fim,
     tetoDesconto: row.teto_desconto != null ? Number(row.teto_desconto) : null,
@@ -123,6 +130,7 @@ function paraContrato(row: ContratoRow): Contrato {
       row.conta_corrente_preferencial != null
         ? Number(row.conta_corrente_preferencial)
         : null,
+    aplicarContaSempre: Boolean(row.aplicar_conta_sempre),
     ativo: Boolean(row.ativo),
     observacoes: row.observacoes,
     criadoEm: row.criado_em,
@@ -136,11 +144,13 @@ function paraRow(contrato: Contrato): ContratoRow {
     omie_cliente_id: contrato.omieClienteId,
     nome: contrato.nome,
     cnpj: contrato.cnpj,
-    percentual_desconto: contrato.percentualDesconto,
+    grupo: contrato.grupo,
+    regras: contrato.regras,
     vigencia_inicio: contrato.vigenciaInicio,
     vigencia_fim: contrato.vigenciaFim,
     teto_desconto: contrato.tetoDesconto,
     conta_corrente_preferencial: contrato.contaCorrentePreferencial,
+    aplicar_conta_sempre: contrato.aplicarContaSempre,
     ativo: contrato.ativo,
     observacoes: contrato.observacoes,
     criado_em: contrato.criadoEm,
@@ -161,8 +171,14 @@ export async function listarContratos(): Promise<Contrato[]> {
   return dados.contratos.sort((a, b) => a.nome.localeCompare(b.nome));
 }
 
-export type EntradaContrato = Omit<Contrato, "id" | "criadoEm" | "atualizadoEm"> & {
+export type EntradaContrato = Omit<
+  Contrato,
+  "id" | "criadoEm" | "atualizadoEm" | "regras" | "aplicarContaSempre" | "grupo"
+> & {
   id?: string;
+  grupo?: string | null;
+  regras?: Array<Partial<RegraDesconto> & { percentual: number }>;
+  aplicarContaSempre?: boolean;
 };
 
 export async function salvarContrato(entrada: EntradaContrato): Promise<Contrato> {
@@ -190,16 +206,35 @@ export async function salvarContrato(entrada: EntradaContrato): Promise<Contrato
     omieClienteId: entrada.omieClienteId,
     nome: entrada.nome.trim(),
     cnpj: (entrada.cnpj ?? "").replace(/\D/g, ""),
-    percentualDesconto: Number(entrada.percentualDesconto),
+    grupo: entrada.grupo?.trim() || null,
+    regras: (entrada.regras ?? []).map((regra) => ({
+      id: regra.id || randomUUID(),
+      rotulo: regra.rotulo?.trim() || rotuloPadrao(regra),
+      percentual: Number(regra.percentual),
+      categoria: regra.categoria ?? "geral",
+      uf: regra.uf?.trim()?.toUpperCase() || null,
+      padrao: Boolean(regra.padrao),
+    })),
     vigenciaInicio: entrada.vigenciaInicio || null,
     vigenciaFim: entrada.vigenciaFim || null,
     tetoDesconto: entrada.tetoDesconto != null ? Number(entrada.tetoDesconto) : null,
     contaCorrentePreferencial: entrada.contaCorrentePreferencial ?? null,
+    aplicarContaSempre: entrada.aplicarContaSempre ?? true,
     ativo: entrada.ativo,
     observacoes: entrada.observacoes?.trim() || null,
     criadoEm: anterior?.criadoEm ?? agora,
     atualizadoEm: agora,
   };
+
+  // Uma única regra é sempre a padrão; com várias, garante no máximo uma marcada.
+  if (contrato.regras.length === 1) contrato.regras[0].padrao = true;
+  else {
+    let jaTemPadrao = false;
+    for (const regra of contrato.regras) {
+      if (regra.padrao && !jaTemPadrao) jaTemPadrao = true;
+      else regra.padrao = false;
+    }
+  }
 
   if (supabase) {
     const { error } = await supabase.from("contratos").upsert(paraRow(contrato));
@@ -226,13 +261,34 @@ export async function excluirContrato(id: string): Promise<void> {
   });
 }
 
+function rotuloPadrao(regra: { categoria?: string | null; uf?: string | null }): string {
+  const partes = [regra.categoria && regra.categoria !== "geral" ? regra.categoria : "geral"];
+  if (regra.uf) partes.push(regra.uf.toUpperCase());
+  return partes.join(" ");
+}
+
 function validarContrato(entrada: EntradaContrato) {
   if (!entrada.omieClienteId) throw new Error("Selecione o cliente do Omie.");
   if (!entrada.nome?.trim()) throw new Error("Informe o nome do cliente.");
-  const pct = Number(entrada.percentualDesconto);
-  if (!Number.isFinite(pct) || pct <= 0 || pct > 100) {
-    throw new Error("Percentual de desconto deve estar entre 0,01 e 100.");
+
+  for (const regra of entrada.regras ?? []) {
+    const pct = Number(regra.percentual);
+    if (!Number.isFinite(pct) || pct <= 0 || pct > 100) {
+      throw new Error(
+        `Percentual da faixa "${regra.rotulo || rotuloPadrao(regra)}" deve estar entre 0,01 e 100.`,
+      );
+    }
   }
+
+  if (
+    !entrada.regras?.length &&
+    !entrada.contaCorrentePreferencial
+  ) {
+    throw new Error(
+      "Contrato sem desconto precisa de uma conta corrente preferencial — senão ele não faz nada.",
+    );
+  }
+
   if (
     entrada.vigenciaInicio &&
     entrada.vigenciaFim &&

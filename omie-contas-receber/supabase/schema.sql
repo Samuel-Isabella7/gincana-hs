@@ -1,16 +1,21 @@
 -- Schema do sistema de contas a receber integrado ao Omie.
 -- Rode no SQL Editor do Supabase.
 
+-- Um contrato pode ter várias faixas de desconto (secos/congelados, SP/RJ) ou
+-- nenhuma — caso do cliente que só precisa ser cobrado sempre no mesmo banco.
+-- Cada item de `regras`: {id, rotulo, percentual, categoria, uf, padrao}.
 create table if not exists contratos (
   id uuid primary key,
   omie_cliente_id bigint not null,
   nome text not null,
   cnpj text not null default '',
-  percentual_desconto numeric(5, 2) not null check (percentual_desconto > 0 and percentual_desconto <= 100),
+  grupo text,
+  regras jsonb not null default '[]'::jsonb,
   vigencia_inicio date,
   vigencia_fim date,
   teto_desconto numeric(14, 2),
   conta_corrente_preferencial bigint,
+  aplicar_conta_sempre boolean not null default true,
   ativo boolean not null default true,
   observacoes text,
   criado_em timestamptz not null default now(),
