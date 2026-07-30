@@ -105,5 +105,53 @@ export interface ResultadoItem {
   tituloId: number;
   sucesso: boolean;
   mensagem: string;
+  /** Verdadeiro quando o lançamento foi para a fila de aprovação do gestor. */
+  pendente?: boolean;
   detalhe?: unknown;
+}
+
+export type StatusAprovacao = "pendente" | "aprovado" | "rejeitado";
+
+/** Desconto manual acima do limite: espera decisão de um gestor. */
+export interface Aprovacao {
+  id: string;
+  tituloId: number;
+  clienteId: number;
+  clienteNome: string;
+  documento: string;
+  saldo: number;
+  percentual: number;
+  valorDesconto: number;
+  saldoFinal: number;
+  justificativa: string;
+  solicitante: string;
+  contaCorrenteId: number | null;
+  data: string;
+  status: StatusAprovacao;
+  criadoEm: string;
+  decididoEm: string | null;
+  decisor: string | null;
+  observacaoDecisao: string | null;
+}
+
+/** O que fazer com o título original depois de criar as parcelas. */
+export type PoliticaOriginal = "baixado" | "excluido";
+
+export interface RegistroParcelamento {
+  id: string;
+  tituloOrigem: number;
+  clienteNome: string;
+  quantidade: number;
+  valorTotal: number;
+  politicaOriginal: PoliticaOriginal;
+  titulosGerados: Array<{
+    numero: number;
+    tituloId: number | null;
+    vencimento: string;
+    valor: number;
+    boleto: boolean;
+  }>;
+  boletosEmitidos: number;
+  usuario: string;
+  criadoEm: string;
 }

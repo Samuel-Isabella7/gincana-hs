@@ -1,3 +1,4 @@
+import { Pagina } from "@/components/Pagina";
 import { TitulosView } from "@/components/titulos/TitulosView";
 import { exigirSessao } from "@/lib/auth";
 import { hoje, somarDias } from "@/lib/format";
@@ -6,6 +7,7 @@ import {
   anexarBoletos,
   listarContasCorrentes,
   listarTitulos,
+  modoDemonstracao,
 } from "@/lib/omie/service";
 import { lerConfig, listarContratos } from "@/lib/store";
 
@@ -15,6 +17,7 @@ interface Parametros {
   venceDe?: string;
   venceAte?: string;
   pagina?: string;
+  porPagina?: string;
 }
 
 export default async function TitulosPage({
@@ -28,49 +31,57 @@ export default async function TitulosPage({
   const venceDe = parametros.venceDe || somarDias(hoje(), -60);
   const venceAte = parametros.venceAte || somarDias(hoje(), 120);
   const pagina = Number(parametros.pagina ?? 1) || 1;
+  const porPagina = Number(parametros.porPagina ?? 50) || 50;
 
-  const dados = await carregar({ pagina, venceDe, venceAte });
-
-  if ("erro" in dados) {
-    return (
-      <div className="cartao p-6">
-        <h1 className="titulo-secao">Não foi possível carregar os títulos</h1>
-        <p className="mt-2 text-sm text-negativo">{dados.erro}</p>
-        <p className="mt-3 text-sm text-suave">
-          Verifique as credenciais do Omie em Configurações e tente novamente.
-        </p>
-      </div>
-    );
-  }
+  const dados = await carregar({ pagina, porPagina, venceDe, venceAte });
 
   return (
-    <TitulosView
-      titulos={dados.titulos}
-      contratos={dados.contratos}
-      contas={dados.contas}
-      config={dados.config}
-      perfil={sessao.perfil}
-      pagina={dados.pagina}
-      totalPaginas={dados.totalPaginas}
-      totalRegistros={dados.totalRegistros}
-      venceDe={venceDe}
-      venceAte={venceAte}
-    />
+    <Pagina
+      titulo="Títulos a receber"
+      fonte="financas/contareceber · ListarContasReceber"
+      demonstracao={modoDemonstracao()}
+    >
+      {"erro" in dados ? (
+        <div className="cartao p-6">
+          <h2 className="titulo-secao">Não foi possível carregar os títulos</h2>
+          <p className="mt-2 text-[12.5px] text-negativo">{dados.erro}</p>
+          <p className="mt-3 text-[12.5px] text-suave">
+            Verifique as credenciais do Omie em Configurações e tente novamente.
+          </p>
+        </div>
+      ) : (
+        <TitulosView
+          titulos={dados.titulos}
+          contratos={dados.contratos}
+          contas={dados.contas}
+          config={dados.config}
+          perfil={sessao.perfil}
+          pagina={dados.pagina}
+          totalPaginas={dados.totalPaginas}
+          totalRegistros={dados.totalRegistros}
+          porPagina={porPagina}
+          venceDe={venceDe}
+          venceAte={venceAte}
+        />
+      )}
+    </Pagina>
   );
 }
 
 async function carregar({
   pagina,
+  porPagina,
   venceDe,
   venceAte,
 }: {
   pagina: number;
+  porPagina: number;
   venceDe: string;
   venceAte: string;
 }) {
   try {
     const [resultado, contas, contratos, config] = await Promise.all([
-      listarTitulos({ pagina, registrosPorPagina: 50, venceDe, venceAte }),
+      listarTitulos({ pagina, registrosPorPagina: porPagina, venceDe, venceAte }),
       listarContasCorrentes(),
       listarContratos(),
       lerConfig(),

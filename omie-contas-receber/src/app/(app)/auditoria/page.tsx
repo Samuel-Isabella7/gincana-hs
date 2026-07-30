@@ -1,5 +1,7 @@
 import { EventosView } from "@/components/auditoria/EventosView";
+import { Pagina } from "@/components/Pagina";
 import { exigirSessao } from "@/lib/auth";
+import { modoDemonstracao } from "@/lib/omie/service";
 import { listarEventos } from "@/lib/store";
 import type { AcaoAuditoria } from "@/lib/types";
 
@@ -29,14 +31,16 @@ export default async function AuditoriaPage({
   });
 
   return (
-    <EventosView
-      eventos={eventos}
-      filtros={{
-        acao: parametros.acao ?? "",
-        usuario: parametros.usuario ?? "",
-        de: parametros.de ?? "",
-        ate: parametros.ate ?? "",
-      }}
-    />
+    <Pagina titulo="Auditoria" fonte="supabase · auditoria" demonstracao={modoDemonstracao()}>
+      <EventosView
+        eventos={eventos}
+        filtros={{
+          acao: parametros.acao ?? "",
+          usuario: parametros.usuario ?? "",
+          de: parametros.de ?? "",
+          ate: parametros.ate ?? "",
+        }}
+      />
+    </Pagina>
   );
 }

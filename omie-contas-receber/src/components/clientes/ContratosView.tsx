@@ -1,11 +1,18 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { Modal } from "@/components/ui/Modal";
-import { dataBr, formatarCnpj, moeda, percentual } from "@/lib/format";
+import { useToast } from "@/components/ui/Toasts";
+import { dataBr, dataHoraBr, formatarCnpj, hoje, moeda, percentual } from "@/lib/format";
 import { postJson } from "@/lib/lote";
-import type { ClienteResumo, ContaCorrente, Contrato, Perfil } from "@/lib/types";
+import type {
+  ClienteResumo,
+  ContaCorrente,
+  Contrato,
+  EventoAuditoria,
+  Perfil,
+} from "@/lib/types";
 
 interface Formulario {
   id?: string;
@@ -34,22 +41,62 @@ const VAZIO: Formulario = {
   observacoes: "",
 };
 
+function situacao(contrato: Contrato): { rotulo: string; classe: string } {
+  if (!contrato.ativo) return { rotulo: "Inativo", classe: "bg-cartao-3 text-fraco" };
+  if (contrato.vigenciaFim && contrato.vigenciaFim < hoje()) {
+    return { rotulo: "Expirado", classe: "bg-alerta-suave text-alerta" };
+  }
+  return { rotulo: "Ativo", classe: "bg-positivo-suave text-positivo" };
+}
+
 export function ContratosView({
   contratos,
   contas,
   perfil,
+  historico,
 }: {
   contratos: Contrato[];
   contas: ContaCorrente[];
   perfil: Perfil;
+  historico: EventoAuditoria[];
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [, iniciarTransicao] = useTransition();
+  const [busca, setBusca] = useState("");
+  const [somenteVigentes, setSomenteVigentes] = useState(false);
+  const [expandido, setExpandido] = useState<string | null>(null);
   const [aberto, setAberto] = useState(false);
   const [form, setForm] = useState<Formulario>(VAZIO);
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
   const gestor = perfil === "gestor";
+
+  const filtrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    return contratos.filter((contrato) => {
+      if (termo) {
+        const alvo = `${contrato.nome} ${contrato.cnpj}`.toLowerCase();
+        if (!alvo.includes(termo)) return false;
+      }
+      if (somenteVigentes && situacao(contrato).rotulo !== "Ativo") return false;
+      return true;
+    });
+  }, [contratos, busca, somenteVigentes]);
+
+  const historicoPor = useMemo(() => {
+    const mapa = new Map<string, EventoAuditoria[]>();
+    for (const evento of historico) {
+      const id = evento.entidade.startsWith("contrato:")
+        ? evento.entidade.slice("contrato:".length)
+        : null;
+      if (!id) continue;
+      const lista = mapa.get(id) ?? [];
+      lista.push(evento);
+      mapa.set(id, lista);
+    }
+    return mapa;
+  }, [historico]);
 
   function novo() {
     setForm(VAZIO);
@@ -98,6 +145,7 @@ export function ContratosView({
         observacoes: form.observacoes,
       });
       setAberto(false);
+      toast(form.id ? "Contrato atualizado." : "Contrato criado.");
       iniciarTransicao(() => router.refresh());
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e));
@@ -111,111 +159,168 @@ export function ContratosView({
     const resposta = await fetch(`/api/contratos/${contrato.id}`, { method: "DELETE" });
     if (!resposta.ok) {
       const dados = await resposta.json().catch(() => ({}));
-      alert(dados.erro ?? "Falha ao remover o contrato.");
+      toast(dados.erro ?? "Falha ao remover o contrato.", "erro");
       return;
     }
+    toast("Contrato removido.");
     iniciarTransicao(() => router.refresh());
   }
 
   return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Clientes especiais</h1>
-          <p className="text-sm text-suave">
-            Percentual de desconto de contrato aplicado pelo botão na tela de títulos.
-          </p>
+    <>
+      <section className="cartao flex flex-wrap items-end gap-2 bg-cartao-alt p-2.5">
+        <div className="w-[268px]">
+          <label className="rotulo" htmlFor="busca-contrato">
+            Cliente ou CNPJ
+          </label>
+          <input
+            id="busca-contrato"
+            className="campo"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar…"
+          />
         </div>
-        <button className="btn-primario" onClick={novo} disabled={!gestor}>
-          Novo contrato
+        <label className="flex h-[30px] items-center gap-1.5 text-[12.5px]">
+          <input
+            type="checkbox"
+            checked={somenteVigentes}
+            onChange={(e) => setSomenteVigentes(e.target.checked)}
+          />
+          Somente vigentes
+        </label>
+        <button className="btn-primario ml-auto" onClick={novo} disabled={!gestor}>
+          + Novo contrato
         </button>
-      </header>
+      </section>
 
       {!gestor && (
-        <p className="rounded-lg bg-alerta-suave px-3 py-2 text-sm text-alerta">
-          Seu perfil é operador: você pode consultar os contratos, mas só um gestor pode
-          criar, editar ou remover.
+        <p className="aviso aviso-alerta">
+          Seu perfil é operador: você consulta os contratos, mas só um gestor cria, edita ou
+          remove.
         </p>
       )}
 
-      <section className="cartao overflow-hidden">
+      <section className="cartao cartao-sombra overflow-hidden">
         <div className="overflow-x-auto">
           <table className="tabela">
             <thead>
               <tr>
                 <th>Cliente</th>
                 <th>CNPJ</th>
-                <th className="num">Desconto</th>
-                <th className="num">Teto por título</th>
+                <th className="text-right">% contrato</th>
+                <th className="text-right">Teto/título</th>
                 <th>Vigência</th>
                 <th>Conta preferencial</th>
-                <th>Situação</th>
-                <th>Atualizado</th>
+                <th>Status</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {contratos.map((contrato) => (
-                <tr key={contrato.id}>
-                  <td>
-                    <div className="font-medium">{contrato.nome}</div>
-                    {contrato.observacoes && (
-                      <div className="text-xs text-suave">{contrato.observacoes}</div>
-                    )}
-                  </td>
-                  <td>{formatarCnpj(contrato.cnpj)}</td>
-                  <td className="num font-medium text-acento">
-                    {percentual(contrato.percentualDesconto)}
-                  </td>
-                  <td className="num">
-                    {contrato.tetoDesconto != null ? moeda(contrato.tetoDesconto) : "—"}
-                  </td>
-                  <td className="whitespace-nowrap">
-                    {contrato.vigenciaInicio || contrato.vigenciaFim
-                      ? `${dataBr(contrato.vigenciaInicio)} → ${dataBr(contrato.vigenciaFim)}`
-                      : "sem prazo"}
-                  </td>
-                  <td>
-                    {contas.find((c) => c.id === contrato.contaCorrentePreferencial)
-                      ?.descricao ?? "—"}
-                  </td>
-                  <td>
-                    <span
-                      className={`selo ${
-                        contrato.ativo
-                          ? "bg-positivo-suave text-positivo"
-                          : "bg-cartao-alt text-suave"
-                      }`}
-                    >
-                      {contrato.ativo ? "ativo" : "inativo"}
-                    </span>
-                  </td>
-                  <td className="text-xs text-suave">{dataBr(contrato.atualizadoEm.slice(0, 10))}</td>
-                  <td>
-                    <div className="flex justify-end gap-1">
-                      <button
-                        className="btn-mini"
-                        onClick={() => editar(contrato)}
-                        disabled={!gestor}
-                      >
-                        Editar
-                      </button>
-                      <button
-                        className="btn-mini"
-                        onClick={() => excluir(contrato)}
-                        disabled={!gestor}
-                      >
-                        Remover
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {filtrados.map((contrato) => {
+                const estado = situacao(contrato);
+                const eventos = historicoPor.get(contrato.id) ?? [];
+                const aberta = expandido === contrato.id;
+                return (
+                  <>
+                    <tr key={contrato.id}>
+                      <td>
+                        <div className="font-medium">{contrato.nome}</div>
+                        {contrato.observacoes && (
+                          <div className="text-[11px] text-fraco">{contrato.observacoes}</div>
+                        )}
+                      </td>
+                      <td className="mono text-[12px]">{formatarCnpj(contrato.cnpj)}</td>
+                      <td className="num font-semibold text-positivo">
+                        −{percentual(contrato.percentualDesconto)}
+                      </td>
+                      <td className="num">
+                        {contrato.tetoDesconto != null ? moeda(contrato.tetoDesconto) : "—"}
+                      </td>
+                      <td className="mono text-[11.5px]">
+                        {contrato.vigenciaInicio || contrato.vigenciaFim
+                          ? `${dataBr(contrato.vigenciaInicio)} – ${dataBr(contrato.vigenciaFim)}`
+                          : "sem prazo"}
+                      </td>
+                      <td className="text-[12px]">
+                        {contas.find((c) => c.id === contrato.contaCorrentePreferencial)
+                          ?.descricao ?? "—"}
+                      </td>
+                      <td>
+                        <span className={`selo ${estado.classe}`}>{estado.rotulo}</span>
+                      </td>
+                      <td>
+                        <div className="flex justify-end gap-1">
+                          <button
+                            className="btn-mini"
+                            onClick={() => setExpandido(aberta ? null : contrato.id)}
+                          >
+                            {aberta ? "Fechar" : "Histórico"}
+                          </button>
+                          <button
+                            className="btn-mini"
+                            onClick={() => editar(contrato)}
+                            disabled={!gestor}
+                          >
+                            Editar
+                          </button>
+                          <button
+                            className="btn-mini"
+                            onClick={() => excluir(contrato)}
+                            disabled={!gestor}
+                          >
+                            Remover
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
 
-              {contratos.length === 0 && (
+                    {aberta && (
+                      <tr key={`${contrato.id}-historico`}>
+                        <td colSpan={8} className="bg-cartao-alt">
+                          <p className="eyebrow mb-2">
+                            Histórico de alterações do percentual
+                          </p>
+                          {eventos.length === 0 ? (
+                            <p className="text-[12px] text-fraco">
+                              Nenhuma alteração registrada além da criação.
+                            </p>
+                          ) : (
+                            <ul className="flex flex-col gap-1">
+                              {eventos.map((evento) => (
+                                <li
+                                  key={evento.id}
+                                  className="grid gap-2 text-[12px] md:grid-cols-[130px_1fr_200px]"
+                                >
+                                  <span className="mono text-fraco">
+                                    {dataHoraBr(evento.criadoEm)}
+                                  </span>
+                                  <span>{evento.descricao}</span>
+                                  <span className="text-right text-suave">
+                                    {evento.usuario}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })}
+
+              {filtrados.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-10 text-center text-sm text-suave">
-                    Nenhum cliente especial cadastrado ainda.
+                  <td colSpan={8} className="py-12 text-center">
+                    <div className="mx-auto max-w-sm rounded-lg border border-dashed border-borda p-6">
+                      <p className="text-[13.5px] font-semibold">
+                        Nenhum cliente especial cadastrado
+                      </p>
+                      <p className="mt-1 text-[12.5px] text-fraco">
+                        Cadastre o percentual de contrato para o botão de desconto usar.
+                      </p>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -227,14 +332,19 @@ export function ContratosView({
       {aberto && (
         <Modal
           titulo={form.id ? "Editar contrato" : "Novo contrato"}
-          descricao="O percentual informado é aplicado sobre o saldo do título no momento do lançamento."
+          descricao="O percentual é aplicado sobre o saldo do título no momento do lançamento."
+          largura="max-w-[680px]"
           onFechar={() => setAberto(false)}
           rodape={
             <>
-              <button className="btn" onClick={() => setAberto(false)} disabled={salvando}>
+              <button
+                className="btn btn-modal ml-auto"
+                onClick={() => setAberto(false)}
+                disabled={salvando}
+              >
                 Cancelar
               </button>
-              <button className="btn-primario" onClick={salvar} disabled={salvando}>
+              <button className="btn-primario btn-modal" onClick={salvar} disabled={salvando}>
                 {salvando ? "Salvando…" : "Salvar contrato"}
               </button>
             </>
@@ -252,7 +362,7 @@ export function ContratosView({
             }
           />
 
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className="mt-3.5 grid gap-3 md:grid-cols-2">
             <div>
               <label className="rotulo" htmlFor="pct">
                 Percentual de desconto (%)
@@ -269,7 +379,7 @@ export function ContratosView({
             </div>
             <div>
               <label className="rotulo" htmlFor="teto">
-                Teto de desconto por título (R$, opcional)
+                Teto por título (R$, opcional)
               </label>
               <input
                 id="teto"
@@ -324,7 +434,7 @@ export function ContratosView({
               </select>
             </div>
             <div className="flex items-end">
-              <label className="flex items-center gap-2 text-sm">
+              <label className="flex h-[30px] items-center gap-2 text-[12.5px]">
                 <input
                   type="checkbox"
                   checked={form.ativo}
@@ -347,14 +457,10 @@ export function ContratosView({
             />
           </div>
 
-          {erro && (
-            <p className="mt-3 rounded-lg bg-negativo-suave px-3 py-2 text-sm text-negativo">
-              {erro}
-            </p>
-          )}
+          {erro && <p className="aviso aviso-erro mt-3">{erro}</p>}
         </Modal>
       )}
-    </div>
+    </>
   );
 }
 
@@ -400,14 +506,14 @@ function BuscaCliente({
         onChange={(e) => setBusca(e.target.value)}
         placeholder="Digite pelo menos 3 letras do nome ou o CNPJ"
       />
-      {carregando && <p className="mt-1 text-xs text-suave">Buscando no Omie…</p>}
+      {carregando && <p className="mt-1 text-[11px] text-fraco">Buscando no Omie…</p>}
       {visiveis.length > 0 && (
-        <ul className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-borda">
+        <ul className="mt-1.5 max-h-48 overflow-y-auto rounded-md border border-borda">
           {visiveis.map((cliente) => (
             <li key={cliente.id}>
               <button
                 type="button"
-                className="flex w-full items-baseline justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-cartao-alt"
+                className="flex w-full cursor-pointer items-baseline justify-between gap-2 px-2.5 py-1.5 text-left text-[12.5px] hover:bg-cartao-3"
                 onClick={() => {
                   onSelecionar(cliente);
                   setBusca(cliente.nome);
@@ -415,13 +521,15 @@ function BuscaCliente({
                 }}
               >
                 <span>{cliente.nome}</span>
-                <span className="text-xs text-suave">{formatarCnpj(cliente.cnpj)}</span>
+                <span className="mono text-[11px] text-fraco">
+                  {formatarCnpj(cliente.cnpj)}
+                </span>
               </button>
             </li>
           ))}
         </ul>
       )}
-      {nome && <p className="mt-1 text-xs text-suave">Selecionado: {nome}</p>}
+      {nome && <p className="mono mt-1 text-[11px] text-fraco">selecionado: {nome}</p>}
     </div>
   );
 }

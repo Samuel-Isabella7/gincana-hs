@@ -36,6 +36,45 @@ create index if not exists auditoria_criado_em_idx on auditoria (criado_em desc)
 create index if not exists auditoria_acao_idx on auditoria (acao);
 create index if not exists auditoria_entidade_idx on auditoria (entidade);
 
+-- Fila de aprovação: desconto manual acima do limite espera decisão do gestor.
+create table if not exists aprovacoes (
+  id uuid primary key,
+  titulo_id bigint not null,
+  cliente_id bigint not null,
+  cliente_nome text not null,
+  documento text not null default '',
+  saldo numeric(14, 2) not null,
+  percentual numeric(6, 2) not null,
+  valor_desconto numeric(14, 2) not null,
+  saldo_final numeric(14, 2) not null,
+  justificativa text not null,
+  solicitante text not null,
+  conta_corrente_id bigint,
+  data date not null,
+  status text not null default 'pendente' check (status in ('pendente', 'aprovado', 'rejeitado')),
+  criado_em timestamptz not null default now(),
+  decidido_em timestamptz,
+  decisor text,
+  observacao_decisao text
+);
+
+create index if not exists aprovacoes_status_idx on aprovacoes (status, criado_em desc);
+
+create table if not exists parcelamentos (
+  id uuid primary key,
+  titulo_origem bigint not null,
+  cliente_nome text not null,
+  quantidade int not null,
+  valor_total numeric(14, 2) not null,
+  politica_original text not null check (politica_original in ('baixado', 'excluido')),
+  titulos_gerados jsonb not null default '[]'::jsonb,
+  boletos_emitidos int not null default 0,
+  usuario text not null,
+  criado_em timestamptz not null default now()
+);
+
+create index if not exists parcelamentos_criado_em_idx on parcelamentos (criado_em desc);
+
 create table if not exists config (
   chave text primary key,
   valor jsonb
@@ -53,5 +92,7 @@ create table if not exists usuarios (
 -- habilitado sem policies públicas: nenhum acesso direto pelo client.
 alter table contratos enable row level security;
 alter table auditoria enable row level security;
+alter table aprovacoes enable row level security;
+alter table parcelamentos enable row level security;
 alter table config enable row level security;
 alter table usuarios enable row level security;

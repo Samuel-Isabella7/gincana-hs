@@ -26,6 +26,8 @@ interface EntradaManual {
   justificativa: string;
 }
 
+type Fase = "previa" | "processando" | "resultado";
+
 export function DescontoModal({
   titulos,
   contratos,
@@ -41,14 +43,16 @@ export function DescontoModal({
   config: Config;
   perfil: Perfil;
   onFechar: () => void;
-  onConcluido: () => void;
+  onConcluido: (mensagem?: string) => void;
 }) {
+  const [fase, setFase] = useState<Fase>("previa");
   const [data, setData] = useState(hoje());
   const [contaCorrenteId, setContaCorrenteId] = useState<string>("");
   const [trocarConta, setTrocarConta] = useState(false);
   const [observacao, setObservacao] = useState("");
   const [manuais, setManuais] = useState<Record<number, EntradaManual>>({});
-  const [progresso, setProgresso] = useState<ProgressoLote | null>(null);
+  const [ignorados, setIgnorados] = useState<number[]>([]);
+  const [progresso, setProgresso] = useState<ProgressoLote>({ atual: 0, total: 0 });
   const [resultados, setResultados] = useState<ResultadoItem[]>([]);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -78,21 +82,24 @@ export function DescontoModal({
         .map((g) =>
           calcularPrevia(g.titulo, null, {
             pisoSaldo: config.pisoSaldo,
-            valorManual: Number(
-              (manuais[g.titulo.id]?.valor ?? "0").replace(",", "."),
-            ),
+            valorManual: Number((manuais[g.titulo.id]?.valor ?? "0").replace(",", ".")),
           }),
         ),
     [semContrato, manuais, config.pisoSaldo],
   );
 
+  const previasAtivas = useMemo(
+    () => previasContrato.filter((p) => !ignorados.includes(p.tituloId)),
+    [previasContrato, ignorados],
+  );
+
   const totais = useMemo(
-    () => totalizarPrevias([...previasContrato, ...previasManuais]),
-    [previasContrato, previasManuais],
+    () => totalizarPrevias([...previasAtivas, ...previasManuais]),
+    [previasAtivas, previasManuais],
   );
 
   const itens = useMemo<ItemDesconto[]>(() => {
-    const doContrato = previasContrato
+    const doContrato = previasAtivas
       .filter((p) => !p.bloqueio)
       .map((p) => montarItem(titulos, p.tituloId));
 
@@ -105,79 +112,115 @@ export function DescontoModal({
       }));
 
     return [...doContrato, ...dosManuais];
-  }, [previasContrato, previasManuais, titulos, manuais]);
+  }, [previasAtivas, previasManuais, titulos, manuais]);
 
-  const executando = progresso !== null && progresso.atual < progresso.total;
-
-  async function aplicar() {
-    setErro(null);
-    if (!itens.length) {
+  async function executar(lista: ItemDesconto[]) {
+    if (!lista.length) {
       setErro("Nenhum título elegível para desconto na seleção atual.");
       return;
     }
 
+    setErro(null);
     setResultados([]);
-    setProgresso({ atual: 0, total: itens.length });
+    setFase("processando");
+    setProgresso({ atual: 0, total: lista.length });
 
     const finais = await enviarSequencial(
-      itens,
+      lista,
       (item) => item.tituloId,
       async (item) => {
-        const resposta = await postJson<{ resultados: ResultadoItem[] }>(
-          "/api/descontos",
-          {
-            itens: [item],
-            data,
-            contaCorrenteId: contaCorrenteId ? Number(contaCorrenteId) : null,
-            trocarConta: trocarConta && Boolean(contaCorrenteId),
-            observacao: observacao.trim() || undefined,
-          },
-        );
+        setProgresso((atual) => ({
+          ...atual,
+          descricao: `Gravando no Omie — ${item.clienteNome ?? item.tituloId}`,
+          rota: "financas/contareceber · LancarRecebimento",
+        }));
+        const resposta = await postJson<{ resultados: ResultadoItem[] }>("/api/descontos", {
+          itens: [item],
+          data,
+          contaCorrenteId: contaCorrenteId ? Number(contaCorrenteId) : null,
+          trocarConta: trocarConta && Boolean(contaCorrenteId),
+          observacao: observacao.trim() || undefined,
+        });
         return resposta.resultados;
       },
-      (concluidos) => setProgresso({ atual: concluidos, total: itens.length }),
+      (concluidos) =>
+        setProgresso((atual) => ({ ...atual, atual: concluidos, total: lista.length })),
     );
 
     setResultados(finais);
-    onConcluido();
+    setFase("resultado");
+
+    const ok = finais.filter((r) => r.sucesso && !r.pendente).length;
+    const falhas = finais.filter((r) => !r.sucesso).length;
+    onConcluido(
+      falhas
+        ? `${ok} desconto(s) gravado(s), ${falhas} com falha.`
+        : `${ok} desconto(s) gravado(s) no Omie.`,
+    );
   }
 
-  const concluido = resultados.length > 0 && !executando;
+  const falhas = resultados.filter((r) => !r.sucesso);
+
+  function reprocessarFalhas() {
+    const ids = falhas.map((f) => f.tituloId);
+    void executar(itens.filter((item) => ids.includes(item.tituloId)));
+  }
 
   return (
     <Modal
       titulo="Aplicar desconto de contrato"
-      descricao="O desconto é lançado como um recebimento de valor zero na conta corrente escolhida: o saldo do título cai apenas o valor do desconto e o restante continua a receber."
-      largura="max-w-5xl"
+      descricao={
+        fase === "previa"
+          ? "Pré-visualização — nada é gravado no Omie até você confirmar."
+          : "Recebimento de valor zero com o valor no campo Desconto: o título não é quitado."
+      }
       onFechar={onFechar}
       rodape={
-        concluido ? (
-          <button className="btn-primario" onClick={onFechar}>
-            Fechar
-          </button>
+        fase === "resultado" ? (
+          <>
+            {falhas.length > 0 && (
+              <button className="btn btn-modal mr-auto" onClick={reprocessarFalhas}>
+                Reprocessar somente as falhas ({falhas.length})
+              </button>
+            )}
+            <button className="btn-primario btn-modal ml-auto" onClick={onFechar}>
+              Fechar
+            </button>
+          </>
         ) : (
           <>
-            <span className="mr-auto text-sm text-suave">
-              {totais.quantidade} título(s) · desconto {moeda(totais.desconto)} · restará{" "}
-              {moeda(totais.saldoFinal)}
+            <span className="mono mr-auto text-[12px] text-suave">
+              saldo {moeda(totais.saldoOriginal)} · desconto{" "}
+              <span className="text-negativo">−{moeda(totais.desconto)}</span> · restará{" "}
+              <span className="font-semibold">{moeda(totais.saldoFinal)}</span>
             </span>
-            <button className="btn" onClick={onFechar} disabled={executando}>
+            <button
+              className="btn btn-modal"
+              onClick={onFechar}
+              disabled={fase === "processando"}
+            >
               Cancelar
             </button>
-            <button className="btn-primario" onClick={aplicar} disabled={executando}>
-              {executando ? "Gravando no Omie…" : "Confirmar e gravar no Omie"}
+            <button
+              className="btn-primario btn-modal"
+              onClick={() => executar(itens)}
+              disabled={fase === "processando"}
+            >
+              {fase === "processando" ? "Gravando no Omie…" : "Confirmar e gravar no Omie"}
             </button>
           </>
         )
       }
     >
-      {progresso && executando && <BarraProgresso progresso={progresso} />}
+      {fase === "processando" && <BarraProgresso progresso={progresso} />}
 
-      {concluido ? (
+      {fase === "resultado" && (
         <ResultadoLote resultados={resultados} />
-      ) : (
+      )}
+
+      {fase === "previa" && (
         <>
-          <div className="mb-5 grid gap-3 md:grid-cols-3">
+          <div className="mb-4 grid gap-3 md:grid-cols-3">
             <div>
               <label className="rotulo" htmlFor="data-recebimento">
                 Data do recebimento
@@ -209,8 +252,8 @@ export function DescontoModal({
                 ))}
               </select>
             </div>
-            <div className="flex items-end">
-              <label className="flex items-center gap-2 text-sm">
+            <div className="flex flex-col justify-end">
+              <label className="flex h-[30px] items-center gap-1.5 text-[12.5px]">
                 <input
                   type="checkbox"
                   checked={trocarConta}
@@ -219,10 +262,11 @@ export function DescontoModal({
                 />
                 Também trocar a conta corrente do título
               </label>
+              <span className="mono text-[10.5px] text-fraco">AlterarContaReceber</span>
             </div>
           </div>
 
-          <div className="mb-5">
+          <div className="mb-4">
             <label className="rotulo" htmlFor="obs-desconto">
               Observação do recebimento (opcional)
             </label>
@@ -235,59 +279,78 @@ export function DescontoModal({
             />
           </div>
 
-          <h3 className="mb-2 text-sm font-semibold">
-            Clientes especiais ({previasContrato.length})
-          </h3>
+          <p className="eyebrow mb-1.5">
+            Com contrato cadastrado — {previasContrato.length} título(s)
+          </p>
           {previasContrato.length === 0 ? (
-            <p className="mb-5 rounded-lg bg-cartao-alt px-3 py-2 text-sm text-suave">
+            <p className="aviso aviso-alerta mb-5">
               Nenhum título da seleção pertence a cliente com contrato vigente.
             </p>
           ) : (
-            <div className="mb-6 overflow-x-auto">
+            <div className="cartao mb-5 overflow-hidden">
               <table className="tabela">
                 <thead>
                   <tr>
+                    <th className="w-9 pl-3" />
                     <th>Cliente</th>
                     <th>Documento</th>
-                    <th>Vencimento</th>
-                    <th className="num">Saldo atual</th>
-                    <th className="num">%</th>
-                    <th className="num">Desconto</th>
-                    <th className="num">Restará</th>
+                    <th className="text-right">Vencimento</th>
+                    <th className="text-right">Saldo atual</th>
+                    <th className="text-right">% contrato</th>
+                    <th className="text-right">Desconto</th>
+                    <th className="text-right">Restará</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {previasContrato.map((previa) => (
-                    <tr key={previa.tituloId}>
-                      <td>
-                        <div className="font-medium">{previa.clienteNome}</div>
-                        {(previa.aviso || previa.bloqueio) && (
-                          <div
-                            className={`text-xs ${
-                              previa.bloqueio ? "text-negativo" : "text-alerta"
-                            }`}
-                          >
-                            {previa.bloqueio ?? previa.aviso}
-                          </div>
-                        )}
-                      </td>
-                      <td>{previa.documento}</td>
-                      <td>{dataBr(previa.vencimento)}</td>
-                      <td className="num">{moeda(previa.saldoAtual)}</td>
-                      <td className="num">{percentual(previa.percentual)}</td>
-                      <td className="num font-medium text-acento">
-                        {moeda(previa.valorDesconto)}
-                      </td>
-                      <td className="num">{moeda(previa.saldoFinal)}</td>
-                    </tr>
-                  ))}
+                  {previasContrato.map((previa) => {
+                    const marcado = !ignorados.includes(previa.tituloId) && !previa.bloqueio;
+                    return (
+                      <tr key={previa.tituloId} className={marcado ? "selecionada" : undefined}>
+                        <td className="pl-3">
+                          <input
+                            type="checkbox"
+                            checked={marcado}
+                            disabled={Boolean(previa.bloqueio)}
+                            onChange={() =>
+                              setIgnorados((atual) =>
+                                atual.includes(previa.tituloId)
+                                  ? atual.filter((id) => id !== previa.tituloId)
+                                  : [...atual, previa.tituloId],
+                              )
+                            }
+                            aria-label={`Incluir título ${previa.tituloId}`}
+                          />
+                        </td>
+                        <td>
+                          <div className="font-medium">{previa.clienteNome}</div>
+                          {(previa.aviso || previa.bloqueio) && (
+                            <div
+                              className={`text-[11px] ${
+                                previa.bloqueio ? "text-negativo" : "text-alerta"
+                              }`}
+                            >
+                              {previa.bloqueio ?? previa.aviso}
+                            </div>
+                          )}
+                        </td>
+                        <td className="mono text-[12px]">{previa.documento}</td>
+                        <td className="num">{dataBr(previa.vencimento)}</td>
+                        <td className="num">{moeda(previa.saldoAtual)}</td>
+                        <td className="num font-semibold text-positivo">
+                          {percentual(previa.percentual)}
+                        </td>
+                        <td className="num text-negativo">−{moeda(previa.valorDesconto)}</td>
+                        <td className="num font-semibold">{moeda(previa.saldoFinal)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot>
-                  <tr className="font-medium">
-                    <td colSpan={3}>Total</td>
+                  <tr>
+                    <td colSpan={4}>Total</td>
                     <td className="num">{moeda(totais.saldoOriginal)}</td>
                     <td />
-                    <td className="num text-acento">{moeda(totais.desconto)}</td>
+                    <td className="num text-negativo">−{moeda(totais.desconto)}</td>
                     <td className="num">{moeda(totais.saldoFinal)}</td>
                   </tr>
                 </tfoot>
@@ -296,16 +359,19 @@ export function DescontoModal({
           )}
 
           {semContrato.length > 0 && (
-            <>
-              <h3 className="mb-1 text-sm font-semibold">
-                Sem desconto de contrato ({semContrato.length})
-              </h3>
-              <p className="mb-2 text-xs text-suave">
-                Para lançar desconto nestes títulos informe o valor e a justificativa.
-                {perfil !== "gestor" &&
-                  ` Valores acima de ${moeda(config.limiteDescontoManual)} exigem um gestor.`}
+            <div className="rounded-lg border border-dashed border-borda p-3">
+              <p className="eyebrow mb-1">
+                Sem desconto de contrato — {semContrato.length} título(s)
               </p>
-              <div className="mb-2 space-y-2">
+              <p className="aviso aviso-alerta mb-2.5">
+                Desconto manual acima de {moeda(config.limiteDescontoManual)}
+                {perfil === "gestor"
+                  ? " é lançado direto por você (perfil gestor)."
+                  : " vai para a fila de aprovação do gestor."}{" "}
+                A justificativa é obrigatória.
+              </p>
+
+              <div className="flex flex-col gap-1.5">
                 {semContrato.map(({ titulo }) => {
                   const entrada = manuais[titulo.id] ?? {
                     incluir: false,
@@ -315,10 +381,10 @@ export function DescontoModal({
                   return (
                     <div
                       key={titulo.id}
-                      className="rounded-lg border border-borda bg-cartao-alt px-3 py-2"
+                      className="rounded-md border border-borda bg-cartao-alt px-2.5 py-2"
                     >
-                      <div className="flex flex-wrap items-center gap-3">
-                        <label className="flex items-center gap-2 text-sm font-medium">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <label className="flex items-center gap-1.5 text-[12.5px] font-medium">
                           <input
                             type="checkbox"
                             checked={entrada.incluir}
@@ -331,14 +397,14 @@ export function DescontoModal({
                           />
                           {titulo.clienteNome}
                         </label>
-                        <span className="text-xs text-suave">
+                        <span className="mono text-[11px] text-fraco">
                           {titulo.numeroDocumento} · venc. {dataBr(titulo.vencimento)} · saldo{" "}
                           {moeda(titulo.saldo)}
                         </span>
                       </div>
 
                       {entrada.incluir && (
-                        <div className="mt-2 grid gap-2 md:grid-cols-[160px_1fr]">
+                        <div className="mt-2 grid gap-2 md:grid-cols-[150px_1fr]">
                           <input
                             className="campo-num"
                             inputMode="decimal"
@@ -368,14 +434,10 @@ export function DescontoModal({
                   );
                 })}
               </div>
-            </>
+            </div>
           )}
 
-          {erro && (
-            <p className="mt-3 rounded-lg bg-negativo-suave px-3 py-2 text-sm text-negativo">
-              {erro}
-            </p>
-          )}
+          {erro && <p className="aviso aviso-erro mt-3">{erro}</p>}
         </>
       )}
     </Modal>

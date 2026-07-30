@@ -2,11 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
-import { dataBr, moeda, somarDias } from "@/lib/format";
+import { dataBr, hoje, moeda, somarDias } from "@/lib/format";
 import { postJson } from "@/lib/lote";
 import type { ResultadoParcelamento } from "@/lib/operacoes-tipos";
-import { gerarParcelas, MAX_PARCELAS, MIN_PARCELAS, somarParcelas } from "@/lib/parcelamento";
-import type { ContaCorrente, Titulo } from "@/lib/types";
+import {
+  gerarParcelas,
+  MAX_PARCELAS,
+  MIN_PARCELAS,
+  somarParcelas,
+} from "@/lib/parcelamento";
+import type { ContaCorrente, PoliticaOriginal, Titulo } from "@/lib/types";
 
 export function ParcelamentoModal({
   titulo,
@@ -17,18 +22,18 @@ export function ParcelamentoModal({
   titulo: Titulo;
   contas: ContaCorrente[];
   onFechar: () => void;
-  onConcluido: () => void;
+  onConcluido: (mensagem?: string) => void;
 }) {
   const [quantidade, setQuantidade] = useState(2);
   const [primeiroVencimento, setPrimeiroVencimento] = useState(
-    somarDias(titulo.vencimento || new Date().toISOString().slice(0, 10), 30),
+    somarDias(titulo.vencimento || hoje(), 30),
   );
   const [intervaloDias, setIntervaloDias] = useState(30);
   const [acrescimo, setAcrescimo] = useState("0");
   const [contaId, setContaId] = useState(
     titulo.contaCorrenteId ? String(titulo.contaCorrenteId) : "",
   );
-  const [excluirOriginal, setExcluirOriginal] = useState(true);
+  const [politica, setPolitica] = useState<PoliticaOriginal>("baixado");
   const [emitirBoletos, setEmitirBoletos] = useState(false);
   const [executando, setExecutando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoParcelamento | null>(null);
@@ -48,6 +53,8 @@ export function ParcelamentoModal({
     }
   }, [titulo.saldo, quantidade, primeiroVencimento, intervaloDias, acrescimo]);
 
+  const total = somarParcelas(previa);
+
   async function parcelar() {
     setErro(null);
     setExecutando(true);
@@ -55,6 +62,7 @@ export function ParcelamentoModal({
       const resposta = await postJson<ResultadoParcelamento>("/api/parcelamentos", {
         tituloId: titulo.id,
         clienteId: titulo.clienteId,
+        clienteNome: titulo.clienteNome,
         saldo: titulo.saldo,
         documento: titulo.numeroDocumento,
         quantidade,
@@ -62,11 +70,11 @@ export function ParcelamentoModal({
         intervaloDias,
         acrescimoPercentual: Number(acrescimo.replace(",", ".")) || 0,
         contaCorrenteId: contaId ? Number(contaId) : null,
-        excluirOriginal,
+        politicaOriginal: politica,
         emitirBoletos,
       });
       setResultado(resposta);
-      onConcluido();
+      onConcluido(`Título parcelado em ${quantidade}x.`);
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e));
     } finally {
@@ -77,26 +85,24 @@ export function ParcelamentoModal({
   return (
     <Modal
       titulo="Parcelar título"
-      descricao={`${titulo.clienteNome} · ${titulo.numeroDocumento} · saldo ${moeda(
-        titulo.saldo,
-      )}`}
-      largura="max-w-3xl"
+      descricao={`${titulo.clienteNome} · ${titulo.numeroDocumento} · saldo ${moeda(titulo.saldo)}`}
+      largura="max-w-[880px]"
       onFechar={onFechar}
       rodape={
         resultado ? (
-          <button className="btn-primario" onClick={onFechar}>
+          <button className="btn-primario btn-modal ml-auto" onClick={onFechar}>
             Fechar
           </button>
         ) : (
           <>
-            <span className="mr-auto text-sm text-suave">
-              {previa.length} parcela(s) · total {moeda(somarParcelas(previa))}
+            <span className="mono mr-auto text-[12px] text-suave">
+              {previa.length} parcela(s) · total {moeda(total)}
             </span>
-            <button className="btn" onClick={onFechar} disabled={executando}>
+            <button className="btn btn-modal" onClick={onFechar} disabled={executando}>
               Cancelar
             </button>
             <button
-              className="btn-primario"
+              className="btn-primario btn-modal"
               onClick={parcelar}
               disabled={executando || previa.length === 0}
             >
@@ -108,45 +114,46 @@ export function ParcelamentoModal({
     >
       {resultado ? (
         <div>
-          <ul className="mb-4 space-y-2">
+          <ul className="mb-3.5 flex flex-col gap-1.5">
             {resultado.parcelas.map((parcela) => (
               <li
                 key={parcela.numero}
-                className={`rounded-lg border px-3 py-2 text-sm ${
+                className={`rounded-md border px-2.5 py-2 text-[12.5px] ${
                   parcela.sucesso
                     ? "border-borda bg-cartao-alt"
                     : "border-negativo/40 bg-negativo-suave"
                 }`}
               >
                 <div className="flex flex-wrap items-baseline gap-2">
-                  <span className="font-medium">
-                    Parcela {parcela.numero} · {moeda(parcela.valor)} · venc.{" "}
-                    {dataBr(parcela.vencimento)}
+                  <span className="mono font-medium">
+                    {String(parcela.numero).padStart(3, "0")}/
+                    {String(resultado.parcelas.length).padStart(3, "0")} ·{" "}
+                    {moeda(parcela.valor)} · venc. {dataBr(parcela.vencimento)}
                   </span>
                   <span className={parcela.sucesso ? "text-suave" : "text-negativo"}>
                     {parcela.mensagem}
                   </span>
+                  {parcela.boleto?.link && (
+                    <a
+                      href={parcela.boleto.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-auto text-[11.5px]"
+                    >
+                      PDF ↓
+                    </a>
+                  )}
                 </div>
-                {parcela.boleto?.link && (
-                  <a
-                    href={parcela.boleto.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-acento underline"
-                  >
-                    Abrir boleto
-                  </a>
-                )}
               </li>
             ))}
           </ul>
 
           {resultado.mensagemOriginal && (
             <p
-              className={`rounded-lg px-3 py-2 text-sm ${
-                resultado.originalExcluido
-                  ? "bg-positivo-suave text-positivo"
-                  : "bg-alerta-suave text-alerta"
+              className={`aviso ${
+                resultado.originalExcluido || resultado.originalBaixado
+                  ? "aviso-ok"
+                  : "aviso-alerta"
               }`}
             >
               {resultado.mensagemOriginal}
@@ -154,148 +161,200 @@ export function ParcelamentoModal({
           )}
         </div>
       ) : (
-        <>
-          <div className="mb-4 grid gap-3 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-[300px_1fr]">
+          <div className="flex flex-col gap-3.5">
             <div>
-              <label className="rotulo" htmlFor="qtd-parcelas">
-                Parcelas
-              </label>
-              <select
-                id="qtd-parcelas"
-                className="campo"
-                value={quantidade}
-                onChange={(e) => setQuantidade(Number(e.target.value))}
-              >
+              <label className="rotulo">Parcelas</label>
+              <div className="flex flex-wrap gap-1">
                 {Array.from(
                   { length: MAX_PARCELAS - MIN_PARCELAS + 1 },
                   (_, i) => i + MIN_PARCELAS,
                 ).map((n) => (
-                  <option key={n} value={n}>
-                    {n}x
-                  </option>
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setQuantidade(n)}
+                    className={`h-[30px] w-8 cursor-pointer rounded-md border text-[12px] transition ${
+                      quantidade === n
+                        ? "border-acento bg-acento-suave font-semibold text-acento"
+                        : "border-borda bg-cartao text-suave hover:border-acento-linha"
+                    }`}
+                  >
+                    {n}
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="rotulo" htmlFor="primeira-parcela">
+                  1ª parcela
+                </label>
+                <input
+                  id="primeira-parcela"
+                  type="date"
+                  className="campo"
+                  value={primeiroVencimento}
+                  onChange={(e) => setPrimeiroVencimento(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="rotulo" htmlFor="intervalo">
+                  Intervalo (dias)
+                </label>
+                <input
+                  id="intervalo"
+                  type="number"
+                  min={1}
+                  className="campo-num"
+                  value={intervaloDias}
+                  onChange={(e) => setIntervaloDias(Number(e.target.value))}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="rotulo" htmlFor="acrescimo">
+                  Acréscimo (%)
+                </label>
+                <input
+                  id="acrescimo"
+                  className="campo-num"
+                  inputMode="decimal"
+                  value={acrescimo}
+                  onChange={(e) => setAcrescimo(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="rotulo" htmlFor="conta-parcelas">
+                  Conta corrente
+                </label>
+                <select
+                  id="conta-parcelas"
+                  className="campo"
+                  value={contaId}
+                  onChange={(e) => setContaId(e.target.value)}
+                >
+                  <option value="">Manter a do título</option>
+                  {contas.map((conta) => (
+                    <option key={conta.id} value={conta.id}>
+                      {conta.descricao}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             <div>
-              <label className="rotulo" htmlFor="primeira-parcela">
-                1ª parcela
-              </label>
-              <input
-                id="primeira-parcela"
-                type="date"
-                className="campo"
-                value={primeiroVencimento}
-                onChange={(e) => setPrimeiroVencimento(e.target.value)}
-              />
+              <label className="rotulo">Título original</label>
+              <div className="flex flex-col gap-1.5">
+                <label
+                  className={`flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-[12.5px] ${
+                    politica === "baixado"
+                      ? "border-acento-linha bg-acento-suave"
+                      : "border-borda"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="politica"
+                    className="mt-0.5"
+                    checked={politica === "baixado"}
+                    onChange={() => setPolitica("baixado")}
+                  />
+                  <span>
+                    Baixar como parcelado
+                    <span className="mono block text-[10.5px] text-fraco">
+                      recebimento de valor zero com desconto = saldo, sem entrada de dinheiro
+                    </span>
+                  </span>
+                </label>
+                <label
+                  className={`flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-[12.5px] ${
+                    politica === "excluido"
+                      ? "border-acento-linha bg-acento-suave"
+                      : "border-borda"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="politica"
+                    className="mt-0.5"
+                    checked={politica === "excluido"}
+                    onChange={() => setPolitica("excluido")}
+                  />
+                  <span>
+                    Excluir do Omie
+                    <span className="mono block text-[10.5px] text-fraco">
+                      ExcluirContaReceber — só funciona sem baixas nem boleto
+                    </span>
+                  </span>
+                </label>
+              </div>
             </div>
-            <div>
-              <label className="rotulo" htmlFor="intervalo">
-                Intervalo (dias)
-              </label>
+
+            <label className="flex items-center gap-2 text-[12.5px]">
               <input
-                id="intervalo"
-                type="number"
-                min={1}
-                className="campo-num"
-                value={intervaloDias}
-                onChange={(e) => setIntervaloDias(Number(e.target.value))}
+                type="checkbox"
+                checked={emitirBoletos}
+                onChange={(e) => setEmitirBoletos(e.target.checked)}
               />
-            </div>
-            <div>
-              <label className="rotulo" htmlFor="acrescimo">
-                Acréscimo (%)
-              </label>
-              <input
-                id="acrescimo"
-                className="campo-num"
-                inputMode="decimal"
-                value={acrescimo}
-                onChange={(e) => setAcrescimo(e.target.value)}
-              />
-            </div>
+              Emitir boleto de todas as parcelas
+            </label>
           </div>
 
-          <div className="mb-4 grid gap-3 md:grid-cols-2">
-            <div>
-              <label className="rotulo" htmlFor="conta-parcelas">
-                Conta corrente das parcelas
-              </label>
-              <select
-                id="conta-parcelas"
-                className="campo"
-                value={contaId}
-                onChange={(e) => setContaId(e.target.value)}
-              >
-                <option value="">Manter a conta do título original</option>
-                {contas.map((conta) => (
-                  <option key={conta.id} value={conta.id}>
-                    {conta.descricao}
-                    {conta.banco ? ` — ${conta.banco}` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col justify-end gap-2 text-sm">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={excluirOriginal}
-                  onChange={(e) => setExcluirOriginal(e.target.checked)}
-                />
-                Excluir o título original depois de criar as parcelas
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={emitirBoletos}
-                  onChange={(e) => setEmitirBoletos(e.target.checked)}
-                />
-                Emitir boleto de cada parcela
-              </label>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="tabela">
-              <thead>
-                <tr>
-                  <th>Parcela</th>
-                  <th>Vencimento</th>
-                  <th className="num">Valor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {previa.map((parcela) => (
-                  <tr key={parcela.numero}>
-                    <td>
-                      {String(parcela.numero).padStart(3, "0")}/
-                      {String(quantidade).padStart(3, "0")}
-                    </td>
-                    <td>{dataBr(parcela.vencimento)}</td>
-                    <td className="num">{moeda(parcela.valor)}</td>
+          <div>
+            <p className="eyebrow mb-1.5">Prévia das parcelas</p>
+            <div className="cartao overflow-hidden">
+              <table className="tabela">
+                <thead>
+                  <tr>
+                    <th>Parcela</th>
+                    <th className="text-right">Vencimento</th>
+                    <th className="text-right">Valor</th>
+                    <th>Obs.</th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="font-medium">
-                  <td colSpan={2}>Total</td>
-                  <td className="num">{moeda(somarParcelas(previa))}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          <p className="mt-3 text-xs text-suave">
-            A diferença de arredondamento fica na primeira parcela, então a soma das
-            parcelas é sempre igual ao total.
-          </p>
-
-          {erro && (
-            <p className="mt-3 rounded-lg bg-negativo-suave px-3 py-2 text-sm text-negativo">
-              {erro}
+                </thead>
+                <tbody>
+                  {previa.map((parcela) => (
+                    <tr key={parcela.numero}>
+                      <td className="mono">
+                        {parcela.numero}/{quantidade}
+                      </td>
+                      <td className="num">{dataBr(parcela.vencimento)}</td>
+                      <td className="num font-semibold">{moeda(parcela.valor)}</td>
+                      <td className="text-[11px] text-fraco">
+                        {parcela.numero === 1 ? "ajuste de arredondamento" : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={2}>Soma das parcelas</td>
+                    <td className="num">{moeda(total)}</td>
+                    <td />
+                  </tr>
+                  <tr>
+                    <td colSpan={2} className="text-suave">
+                      Saldo do título original
+                    </td>
+                    <td className="num text-suave">{moeda(titulo.saldo)}</td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <p className="mono mt-2 text-[10.5px] text-fraco">
+              cada parcela entra como um novo título (IncluirContaReceber) e o original segue a
+              política escolhida
             </p>
-          )}
-        </>
+
+            {erro && <p className="aviso aviso-erro mt-3">{erro}</p>}
+          </div>
+        </div>
       )}
     </Modal>
   );

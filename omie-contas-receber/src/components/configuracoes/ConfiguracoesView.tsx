@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { useToast } from "@/components/ui/Toasts";
 import { postJson } from "@/lib/lote";
 import type { Config, ContaCorrente, Perfil } from "@/lib/types";
 
@@ -11,14 +12,19 @@ export function ConfiguracoesView({
   perfil,
   omieConectado,
   usandoSupabase,
+  chaveMascarada,
+  usuarios,
 }: {
   config: Config;
   contas: ContaCorrente[];
   perfil: Perfil;
   omieConectado: boolean;
   usandoSupabase: boolean;
+  chaveMascarada: { appKey: string; appSecret: string };
+  usuarios: Array<{ usuario: string; nome: string; perfil: Perfil }>;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [, iniciarTransicao] = useTransition();
   const gestor = perfil === "gestor";
 
@@ -27,96 +33,132 @@ export function ConfiguracoesView({
   const [contaPadrao, setContaPadrao] = useState(
     config.contaCorrentePadrao != null ? String(config.contaCorrentePadrao) : "",
   );
-  const [mensagem, setMensagem] = useState<string | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
+  const [testando, setTestando] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
   async function salvar() {
-    setErro(null);
-    setMensagem(null);
     try {
       await postJson("/api/configuracoes", {
         pisoSaldo: Number(pisoSaldo.replace(",", ".")) || 0,
         limiteDescontoManual: Number(limite.replace(",", ".")) || 0,
         contaCorrentePadrao: contaPadrao ? Number(contaPadrao) : null,
       });
-      setMensagem("Configurações salvas.");
+      toast("Configurações salvas.");
       iniciarTransicao(() => router.refresh());
     } catch (e) {
-      setErro(e instanceof Error ? e.message : String(e));
+      toast(e instanceof Error ? e.message : String(e), "erro");
     }
   }
 
   async function testar() {
-    setStatus("Testando…");
-    const resposta = await fetch("/api/omie/status");
-    const dados = await resposta.json();
-    setStatus(dados.mensagem ?? dados.erro ?? "Sem resposta.");
+    setTestando(true);
+    setStatus(null);
+    try {
+      const resposta = await fetch("/api/omie/status");
+      const dados = await resposta.json();
+      const mensagem = dados.mensagem ?? dados.erro ?? "Sem resposta.";
+      setStatus(mensagem);
+      toast(mensagem, dados.ok ? "ok" : "erro");
+    } finally {
+      setTestando(false);
+    }
   }
 
   return (
-    <div className="space-y-4">
-      <header>
-        <h1 className="text-xl font-semibold tracking-tight">Configurações</h1>
-        <p className="text-sm text-suave">
-          Conexão com o Omie, contas correntes e limites das operações de desconto.
-        </p>
-      </header>
+    <div className="grid max-w-[1080px] items-start gap-4 xl:grid-cols-2">
+      <section className="cartao p-3.5">
+        <h2 className="mb-3 text-[13px] font-semibold">Conexão com o Omie</h2>
 
-      <section className="cartao p-4">
-        <h2 className="titulo-secao mb-3">Conexão com o Omie</h2>
-        <div className="flex flex-wrap items-center gap-3">
+        <div
+          className="mb-3 flex items-start gap-2 rounded-md px-2.5 py-2"
+          style={{ background: omieConectado ? "var(--pos-soft)" : "var(--warn-soft)" }}
+        >
           <span
-            className={`selo ${
-              omieConectado
-                ? "bg-positivo-suave text-positivo"
-                : "bg-alerta-suave text-alerta"
-            }`}
-          >
-            {omieConectado ? "credenciais configuradas" : "modo demonstração"}
-          </span>
-          <button className="btn" onClick={testar}>
-            Testar conexão
+            className="ponto mt-1.5"
+            style={{ background: omieConectado ? "var(--pos)" : "var(--warn)" }}
+          />
+          <div>
+            <p
+              className="text-[12.5px] font-semibold"
+              style={{ color: omieConectado ? "var(--pos)" : "var(--warn)" }}
+            >
+              {omieConectado ? "Credenciais configuradas" : "Modo demonstração"}
+            </p>
+            <p className="text-[11.5px] text-suave">
+              {omieConectado
+                ? "As chamadas passam por /api/omie/* no servidor, com fila e retry."
+                : "Defina OMIE_APP_KEY e OMIE_APP_SECRET no ambiente para operar no Omie."}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          <div>
+            <label className="rotulo">OMIE_APP_KEY</label>
+            <input className="campo mono" value={chaveMascarada.appKey} readOnly />
+          </div>
+          <div>
+            <label className="rotulo">OMIE_APP_SECRET</label>
+            <input className="campo mono" value={chaveMascarada.appSecret} readOnly />
+          </div>
+        </div>
+
+        <p className="mt-2 text-[11px] text-fraco">
+          As credenciais existem apenas como variáveis de ambiente do servidor — nunca são
+          enviadas ao navegador nem gravadas no banco.
+        </p>
+
+        <div className="mt-3 flex items-center gap-2">
+          <button className="btn" onClick={testar} disabled={testando}>
+            {testando ? "Testando…" : "Testar conexão"}
           </button>
-          <span className="text-sm text-suave">
+          <span className="text-[11.5px] text-suave">
             Persistência: {usandoSupabase ? "Supabase" : "arquivo local .data/store.json"}
           </span>
         </div>
-        {status && <p className="mt-3 text-sm text-suave">{status}</p>}
+        {status && <p className="mt-2 text-[12px] text-suave">{status}</p>}
       </section>
 
-      <section className="cartao p-4">
-        <h2 className="titulo-secao mb-3">Regras de desconto</h2>
-        <div className="grid gap-3 md:grid-cols-3">
-          <div>
-            <label className="rotulo" htmlFor="piso">
-              Saldo mínimo após o desconto (R$)
-            </label>
-            <input
-              id="piso"
-              className="campo-num"
-              inputMode="decimal"
-              value={pisoSaldo}
-              onChange={(e) => setPisoSaldo(e.target.value)}
-              disabled={!gestor}
-            />
-            <p className="mt-1 text-xs text-suave">
-              O desconto é reduzido para nunca deixar o título abaixo deste saldo.
-            </p>
-          </div>
-          <div>
-            <label className="rotulo" htmlFor="limite">
-              Limite de desconto manual sem gestor (R$)
-            </label>
-            <input
-              id="limite"
-              className="campo-num"
-              inputMode="decimal"
-              value={limite}
-              onChange={(e) => setLimite(e.target.value)}
-              disabled={!gestor}
-            />
-          </div>
+      <section className="cartao overflow-hidden">
+        <h2 className="px-3.5 pt-3.5 pb-2 text-[13px] font-semibold">
+          Contas correntes sincronizadas ({contas.length})
+        </h2>
+        <table className="tabela">
+          <thead>
+            <tr>
+              <th>Conta</th>
+              <th>Banco</th>
+              <th className="text-right">nCodCC</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {contas.map((conta) => (
+              <tr key={conta.id}>
+                <td className="font-medium">{conta.descricao}</td>
+                <td className="text-[12px]">{conta.banco ?? "—"}</td>
+                <td className="num text-[11.5px]">{conta.id}</td>
+                <td>
+                  {config.contaCorrentePadrao === conta.id && (
+                    <span className="selo bg-acento-suave text-acento">padrão</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {contas.length === 0 && (
+              <tr>
+                <td colSpan={4} className="py-6 text-center text-[12.5px] text-fraco">
+                  Nenhuma conta corrente carregada.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </section>
+
+      <section className="cartao p-3.5">
+        <h2 className="mb-3 text-[13px] font-semibold">Regras financeiras</h2>
+        <div className="grid gap-2.5 sm:grid-cols-3">
           <div>
             <label className="rotulo" htmlFor="conta-padrao">
               Conta corrente padrão
@@ -135,57 +177,91 @@ export function ConfiguracoesView({
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-suave">
-              Usada quando o título não tem conta corrente definida.
-            </p>
+          </div>
+          <div>
+            <label className="rotulo" htmlFor="piso">
+              Piso de saldo (R$)
+            </label>
+            <input
+              id="piso"
+              className="campo-num"
+              inputMode="decimal"
+              value={pisoSaldo}
+              onChange={(e) => setPisoSaldo(e.target.value)}
+              disabled={!gestor}
+            />
+          </div>
+          <div>
+            <label className="rotulo" htmlFor="limite">
+              Desconto manual sem aprovação (R$)
+            </label>
+            <input
+              id="limite"
+              className="campo-num"
+              inputMode="decimal"
+              value={limite}
+              onChange={(e) => setLimite(e.target.value)}
+              disabled={!gestor}
+            />
           </div>
         </div>
 
-        <div className="mt-4 flex items-center gap-3">
+        <p className="mt-2 text-[11px] text-fraco">
+          O desconto nunca deixa o título abaixo do piso e o arredondamento é sempre para baixo
+          no centavo. Acima do limite, o desconto manual vai para a fila de aprovação.
+        </p>
+
+        <div className="mt-3 flex items-center gap-2">
           <button className="btn-primario" onClick={salvar} disabled={!gestor}>
             Salvar
           </button>
-          {mensagem && <span className="text-sm text-positivo">{mensagem}</span>}
-          {erro && <span className="text-sm text-negativo">{erro}</span>}
           {!gestor && (
-            <span className="text-sm text-suave">Somente gestores podem alterar.</span>
+            <span className="text-[11.5px] text-suave">Somente gestores podem alterar.</span>
           )}
         </div>
       </section>
 
       <section className="cartao overflow-hidden">
-        <h2 className="titulo-secao px-4 pt-4 pb-2">
-          Contas correntes sincronizadas ({contas.length})
+        <h2 className="px-3.5 pt-3.5 pb-2 text-[13px] font-semibold">
+          Usuários e perfis ({usuarios.length})
         </h2>
-        <div className="overflow-x-auto">
-          <table className="tabela">
-            <thead>
-              <tr>
-                <th>Código Omie</th>
-                <th>Descrição</th>
-                <th>Banco</th>
-                <th>Tipo</th>
+        <table className="tabela">
+          <thead>
+            <tr>
+              <th>Usuário</th>
+              <th>Login</th>
+              <th>Perfil</th>
+            </tr>
+          </thead>
+          <tbody>
+            {usuarios.map((u) => (
+              <tr key={u.usuario}>
+                <td>
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-[26px] w-[26px] items-center justify-center rounded-[5px] bg-acento-suave text-[11px] font-semibold text-acento">
+                      {u.nome
+                        .split(" ")
+                        .slice(0, 2)
+                        .map((p) => p[0]?.toUpperCase())
+                        .join("")}
+                    </span>
+                    <span className="font-medium">{u.nome}</span>
+                  </div>
+                </td>
+                <td className="mono text-[12px]">{u.usuario}</td>
+                <td>
+                  <span className="selo bg-cartao-3 text-suave">
+                    {u.perfil === "gestor" ? "Gestor" : "Operador financeiro"}
+                  </span>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {contas.map((conta) => (
-                <tr key={conta.id}>
-                  <td className="font-mono text-xs">{conta.id}</td>
-                  <td className="font-medium">{conta.descricao}</td>
-                  <td>{conta.banco ?? "—"}</td>
-                  <td className="text-xs text-suave">{conta.tipo ?? "—"}</td>
-                </tr>
-              ))}
-              {contas.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="py-8 text-center text-sm text-suave">
-                    Nenhuma conta corrente carregada.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
+        <p className="px-3.5 py-2.5 text-[11px] text-fraco">
+          Usuários são criados no banco (tabela <span className="mono">usuarios</span>). O
+          primeiro acesso cria o administrador a partir de ADMIN_USUARIO / ADMIN_SENHA.
+        </p>
       </section>
     </div>
   );

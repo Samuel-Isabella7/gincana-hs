@@ -21,15 +21,19 @@ O cálculo é sempre refeito no servidor a partir do percentual do contrato cada
 
 ## Funcionalidades
 
-- **Lista de títulos** com filtros (cliente/CNPJ/documento, status, banco, período de vencimento, somente clientes especiais, somente sem boleto), indicadores de total a receber / vencido / descontos / sem boleto e seleção múltipla.
-- **Aplicar desconto de contrato** em lote, com pré-visualização antes de gravar: saldo atual, percentual, desconto e quanto restará por título, mais totais. Processa item a item mostrando progresso e devolve sucessos/falhas com a mensagem do Omie.
-- **Desconto manual** para clientes sem contrato, com justificativa obrigatória e limite de valor que exige perfil gestor.
-- **Trocar conta corrente do título** (o "mudar o banco"): altera apenas o `id_conta_corrente` do título via `AlterarContaReceber`. Não cancela nem reemite boleto — a tela avisa quando o título já tem boleto emitido.
-- **Emitir boleto** individual ou em lote, sempre pela API do Omie, com link/PDF e linha digitável no resultado.
-- **Parcelar título**: 2 a 12 parcelas, data da primeira, intervalo em dias, acréscimo opcional; a diferença de arredondamento fica na primeira parcela. Cria as parcelas no Omie, opcionalmente emite os boletos e só exclui o título original se todas as parcelas forem criadas.
-- **Clientes especiais**: CRUD de contratos com percentual fixo, vigência, teto por título e conta corrente preferencial. Bloqueia contratos ativos sobrepostos para o mesmo cliente.
-- **Auditoria**: todo lançamento grava usuário, ação, payload enviado ao Omie, resposta, sucesso/erro. Filtros e exportação CSV.
-- **Perfis**: operador (opera) e gestor (opera + cadastra contratos, altera configurações, aprova desconto manual acima do limite).
+- **Títulos a receber** com filtros (cliente/CNPJ/documento, período de vencimento, status, banco, saldo mínimo, somente clientes especiais, somente sem boleto), 4 indicadores no topo, seleção múltipla, paginação com 50/100/200 por página e barra de ações em lote.
+- **Aplicar desconto de contrato** em lote, em três fases: pré-visualização (saldo atual, % de contrato, desconto e quanto restará, com totais), processamento item a item com contador e barra de progresso, e resultado com cartões de sucesso/aprovação/falha e **reprocessar somente as falhas**.
+- **Desconto manual** para clientes sem contrato, com justificativa obrigatória. Acima do limite configurado vai para a **fila de aprovação do gestor** em vez de ser gravado.
+- **Aprovações**: gestor aprova (grava no Omie na hora) ou rejeita, com histórico das decisões e contador no menu lateral. Operador acompanha o que enviou.
+- **Trocar conta corrente do título** (o "mudar o banco"): altera apenas o `id_conta_corrente` via `AlterarContaReceber`. Não cancela nem reemite boleto — a tela avisa quais títulos já têm boleto e em qual banco.
+- **Emitir boleto** individual ou em lote, sempre pela API do Omie, com linha digitável, link do PDF, "copiar linha", "baixar todos" e **tentar novamente** por linha que falhou.
+- **Parcelar título**: 2 a 12 parcelas, data da primeira, intervalo, acréscimo opcional, prévia com o ajuste de arredondamento na primeira parcela, e política do título original — *baixar como parcelado* (recebimento de valor zero com desconto igual ao saldo) ou *excluir do Omie*. O original só é tocado se todas as parcelas entrarem.
+- **Parcelamentos**: histórico com título de origem, parcelas, valor total, política aplicada e quantos boletos saíram.
+- **Clientes especiais**: CRUD de contratos com percentual fixo, vigência, teto por título e conta preferencial; status Ativo/Expirado/Inativo, histórico de alterações do percentual e bloqueio de contratos vigentes sobrepostos.
+- **Auditoria**: todo lançamento grava usuário, ação, payload enviado ao Omie e resposta. Linha expansível com antes → depois e o JSON enviado/recebido, filtros e exportação CSV.
+- **Configurações**: status da conexão, credenciais mascaradas, contas correntes sincronizadas, conta padrão, piso de saldo, limite de desconto manual e lista de usuários/perfis.
+- **Perfis**: operador (opera e solicita) e gestor (opera + contratos + configurações + fila de aprovação).
+- **Tema claro/escuro** com preferência salva no navegador, tipografia IBM Plex Sans/Mono e números tabulares.
 
 ## Como rodar
 
@@ -49,9 +53,15 @@ O primeiro acesso cria o usuário de `ADMIN_USUARIO` / `ADMIN_SENHA` com perfil 
 
 Rode `supabase/schema.sql` no SQL Editor do projeto. As tabelas ficam com RLS habilitado e sem policies públicas: o acesso é só server-side, com a service role key.
 
-### Deploy
+### Deploy (hospedar para testar)
 
-Funciona direto na Vercel. Configure as mesmas variáveis de ambiente do `.env.example` no projeto (o `.data/store.json` não é utilizável em serverless — o Supabase é obrigatório em produção).
+Funciona direto na Vercel — `next build` sem passos extras. Antes do primeiro deploy:
+
+1. Criar o projeto no Supabase e rodar `supabase/schema.sql`.
+2. Configurar as variáveis de ambiente no projeto da Vercel: `OMIE_APP_KEY`, `OMIE_APP_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SESSION_SECRET` (`openssl rand -base64 32`), `ADMIN_USUARIO`, `ADMIN_SENHA`.
+3. Entrar com o usuário administrador e cadastrar os clientes especiais.
+
+Sem as variáveis do Omie o deploy sobe em modo demonstração — útil para o time navegar as telas antes de ligar no ERP. O `.data/store.json` **não** funciona em serverless: em produção o Supabase é obrigatório.
 
 ## Estrutura
 
@@ -60,6 +70,8 @@ src/
   app/
     (app)/titulos          tela principal (lista + ações em lote)
     (app)/clientes         contratos dos clientes especiais
+    (app)/parcelamentos    histórico de parcelamentos
+    (app)/aprovacoes       fila de desconto manual do gestor
     (app)/auditoria        trilha de eventos
     (app)/configuracoes    conexão, contas correntes e limites
     login                  autenticação

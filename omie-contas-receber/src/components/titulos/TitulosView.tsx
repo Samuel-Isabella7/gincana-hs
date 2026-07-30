@@ -7,6 +7,7 @@ import { ContaCorrenteModal } from "./ContaCorrenteModal";
 import { DescontoModal } from "./DescontoModal";
 import { ParcelamentoModal } from "./ParcelamentoModal";
 import { ROTULOS_STATUS, StatusSelo } from "./StatusSelo";
+import { useToast } from "@/components/ui/Toasts";
 import { contratoVigente } from "@/lib/desconto";
 import { dataBr, formatarCnpj, moeda, percentual } from "@/lib/format";
 import type {
@@ -29,6 +30,7 @@ export function TitulosView({
   pagina,
   totalPaginas,
   totalRegistros,
+  porPagina,
   venceDe,
   venceAte,
 }: {
@@ -40,15 +42,18 @@ export function TitulosView({
   pagina: number;
   totalPaginas: number;
   totalRegistros: number;
+  porPagina: number;
   venceDe: string;
   venceAte: string;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [emTransicao, iniciarTransicao] = useTransition();
 
   const [texto, setTexto] = useState("");
   const [status, setStatus] = useState<StatusTitulo | "">("");
   const [contaFiltro, setContaFiltro] = useState("");
+  const [valorMinimo, setValorMinimo] = useState("");
   const [somenteEspeciais, setSomenteEspeciais] = useState(false);
   const [somenteSemBoleto, setSomenteSemBoleto] = useState(false);
   const [selecionados, setSelecionados] = useState<number[]>([]);
@@ -61,6 +66,7 @@ export function TitulosView({
 
   const filtrados = useMemo(() => {
     const busca = texto.trim().toLowerCase();
+    const minimo = Number(valorMinimo.replace(",", ".")) || 0;
     return titulos.filter((titulo) => {
       if (busca) {
         const alvo = `${titulo.clienteNome} ${titulo.clienteCnpj} ${titulo.numeroDocumento} ${titulo.numeroTitulo}`.toLowerCase();
@@ -68,11 +74,21 @@ export function TitulosView({
       }
       if (status && titulo.status !== status) return false;
       if (contaFiltro && String(titulo.contaCorrenteId) !== contaFiltro) return false;
+      if (minimo && titulo.saldo < minimo) return false;
       if (somenteEspeciais && !contratoDe(titulo)) return false;
       if (somenteSemBoleto && titulo.boletoEmitido) return false;
       return true;
     });
-  }, [titulos, texto, status, contaFiltro, somenteEspeciais, somenteSemBoleto, contratoDe]);
+  }, [
+    titulos,
+    texto,
+    status,
+    contaFiltro,
+    valorMinimo,
+    somenteEspeciais,
+    somenteSemBoleto,
+    contratoDe,
+  ]);
 
   const selecionadosTitulos = useMemo(
     () => titulos.filter((t) => selecionados.includes(t.id)),
@@ -86,169 +102,185 @@ export function TitulosView({
       vencido: abertos.filter((t) => t.status === "VENCIDO").reduce((s, t) => s + t.saldo, 0),
       descontos: filtrados.reduce((s, t) => s + t.valorDesconto, 0),
       semBoleto: abertos.filter((t) => !t.boletoEmitido).length,
+      selecionado: selecionadosTitulos.reduce((s, t) => s + t.saldo, 0),
     };
-  }, [filtrados]);
+  }, [filtrados, selecionadosTitulos]);
 
   const todosMarcados =
     filtrados.length > 0 && filtrados.every((t) => selecionados.includes(t.id));
 
-  function alternarTodos() {
-    setSelecionados(todosMarcados ? [] : filtrados.map((t) => t.id));
-  }
-
-  function alternar(id: number) {
-    setSelecionados((atual) =>
-      atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id],
-    );
-  }
-
-  function aplicarPeriodo(campo: "venceDe" | "venceAte", valor: string) {
-    const parametros = new URLSearchParams({ venceDe, venceAte });
-    parametros.set(campo, valor);
-    parametros.set("pagina", "1");
-    iniciarTransicao(() => router.push(`/titulos?${parametros.toString()}`));
-  }
-
-  function irParaPagina(destino: number) {
+  function navegar(mudancas: Record<string, string>) {
     const parametros = new URLSearchParams({
       venceDe,
       venceAte,
-      pagina: String(destino),
+      pagina: String(pagina),
+      porPagina: String(porPagina),
+      ...mudancas,
     });
     iniciarTransicao(() => router.push(`/titulos?${parametros.toString()}`));
   }
 
-  function aoConcluir() {
+  function limparFiltros() {
+    setTexto("");
+    setStatus("");
+    setContaFiltro("");
+    setValorMinimo("");
+    setSomenteEspeciais(false);
+    setSomenteSemBoleto(false);
+  }
+
+  function aoConcluir(mensagem?: string) {
     setSelecionados([]);
+    if (mensagem) toast(mensagem);
     iniciarTransicao(() => router.refresh());
   }
 
-  return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Contas a receber</h1>
-          <p className="text-sm text-suave">
-            {totalRegistros} título(s) no período · página {pagina} de {totalPaginas}
-          </p>
-        </div>
-        <button
-          className="btn"
-          onClick={() => iniciarTransicao(() => router.refresh())}
-          disabled={emTransicao}
-        >
-          {emTransicao ? "Atualizando…" : "Atualizar"}
-        </button>
-      </header>
+  const inicio = totalRegistros === 0 ? 0 : (pagina - 1) * porPagina + 1;
+  const fim = Math.min(pagina * porPagina, totalRegistros);
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Indicador rotulo="Total a receber" valor={moeda(resumo.aReceber)} />
-        <Indicador rotulo="Vencido" valor={moeda(resumo.vencido)} tom="negativo" />
-        <Indicador rotulo="Descontos lançados" valor={moeda(resumo.descontos)} tom="acento" />
-        <Indicador rotulo="Sem boleto" valor={String(resumo.semBoleto)} />
+  return (
+    <>
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <Indicador
+          rotulo="Total a receber"
+          valor={moeda(resumo.aReceber)}
+          nota={`${filtrados.length} título(s) no filtro`}
+        />
+        <Indicador
+          rotulo="Total vencido"
+          valor={moeda(resumo.vencido)}
+          nota="saldo em atraso"
+          tom="negativo"
+        />
+        <Indicador
+          rotulo="Descontos lançados"
+          valor={moeda(resumo.descontos)}
+          nota="já aplicados nos títulos listados"
+          tom="acento"
+        />
+        <Indicador
+          rotulo="Títulos sem boleto"
+          valor={String(resumo.semBoleto)}
+          nota="aguardando emissão"
+          tom="alerta"
+        />
       </section>
 
-      <section className="cartao p-3">
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <div className="xl:col-span-2">
-            <label className="rotulo" htmlFor="busca">
-              Cliente, CNPJ ou documento
-            </label>
-            <input
-              id="busca"
-              className="campo"
-              value={texto}
-              onChange={(e) => setTexto(e.target.value)}
-              placeholder="Buscar…"
-            />
-          </div>
-          <div>
-            <label className="rotulo" htmlFor="filtro-status">
-              Status
-            </label>
-            <select
-              id="filtro-status"
-              className="campo"
-              value={status}
-              onChange={(e) => setStatus(e.target.value as StatusTitulo | "")}
-            >
-              <option value="">Todos</option>
-              {ROTULOS_STATUS.map((s) => (
-                <option key={s.valor} value={s.valor}>
-                  {s.rotulo}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="rotulo" htmlFor="filtro-conta">
-              Banco / conta
-            </label>
-            <select
-              id="filtro-conta"
-              className="campo"
-              value={contaFiltro}
-              onChange={(e) => setContaFiltro(e.target.value)}
-            >
-              <option value="">Todas</option>
-              {contas.map((conta) => (
-                <option key={conta.id} value={conta.id}>
-                  {conta.descricao}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="rotulo" htmlFor="vence-de">
-              Vence de
-            </label>
-            <input
-              id="vence-de"
-              type="date"
-              className="campo"
-              value={venceDe}
-              onChange={(e) => aplicarPeriodo("venceDe", e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="rotulo" htmlFor="vence-ate">
-              Vence até
-            </label>
-            <input
-              id="vence-ate"
-              type="date"
-              className="campo"
-              value={venceAte}
-              onChange={(e) => aplicarPeriodo("venceAte", e.target.value)}
-            />
-          </div>
+      <section className="cartao flex flex-wrap items-end gap-2 bg-cartao-alt p-2.5">
+        <div className="w-[268px]">
+          <label className="rotulo" htmlFor="busca">
+            Cliente, CNPJ ou documento
+          </label>
+          <input
+            id="busca"
+            className="campo"
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            placeholder="Buscar…"
+          />
+        </div>
+        <div className="w-[140px]">
+          <label className="rotulo" htmlFor="vence-de">
+            Vence de
+          </label>
+          <input
+            id="vence-de"
+            type="date"
+            className="campo"
+            value={venceDe}
+            onChange={(e) => navegar({ venceDe: e.target.value, pagina: "1" })}
+          />
+        </div>
+        <div className="w-[140px]">
+          <label className="rotulo" htmlFor="vence-ate">
+            Vence até
+          </label>
+          <input
+            id="vence-ate"
+            type="date"
+            className="campo"
+            value={venceAte}
+            onChange={(e) => navegar({ venceAte: e.target.value, pagina: "1" })}
+          />
+        </div>
+        <div className="w-[130px]">
+          <label className="rotulo" htmlFor="filtro-status">
+            Status
+          </label>
+          <select
+            id="filtro-status"
+            className="campo"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as StatusTitulo | "")}
+          >
+            <option value="">Todos</option>
+            {ROTULOS_STATUS.map((s) => (
+              <option key={s.valor} value={s.valor}>
+                {s.rotulo}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="w-[170px]">
+          <label className="rotulo" htmlFor="filtro-conta">
+            Banco / conta
+          </label>
+          <select
+            id="filtro-conta"
+            className="campo"
+            value={contaFiltro}
+            onChange={(e) => setContaFiltro(e.target.value)}
+          >
+            <option value="">Todas</option>
+            {contas.map((conta) => (
+              <option key={conta.id} value={conta.id}>
+                {conta.descricao}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="w-[110px]">
+          <label className="rotulo" htmlFor="valor-min">
+            Saldo mín.
+          </label>
+          <input
+            id="valor-min"
+            className="campo-num"
+            inputMode="decimal"
+            value={valorMinimo}
+            onChange={(e) => setValorMinimo(e.target.value)}
+            placeholder="0,00"
+          />
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-4 text-sm">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={somenteEspeciais}
-              onChange={(e) => setSomenteEspeciais(e.target.checked)}
-            />
-            Somente clientes especiais
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={somenteSemBoleto}
-              onChange={(e) => setSomenteSemBoleto(e.target.checked)}
-            />
-            Somente sem boleto
-          </label>
-        </div>
+        <label className="flex h-[30px] items-center gap-1.5 text-[12.5px]">
+          <input
+            type="checkbox"
+            checked={somenteEspeciais}
+            onChange={(e) => setSomenteEspeciais(e.target.checked)}
+          />
+          Somente clientes especiais
+        </label>
+        <label className="flex h-[30px] items-center gap-1.5 text-[12.5px]">
+          <input
+            type="checkbox"
+            checked={somenteSemBoleto}
+            onChange={(e) => setSomenteSemBoleto(e.target.checked)}
+          />
+          Somente sem boleto
+        </label>
+
+        <button className="btn ml-auto" onClick={limparFiltros}>
+          Limpar
+        </button>
       </section>
 
       {selecionados.length > 0 && (
-        <section className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-acento/30 bg-acento-suave px-3 py-2">
-          <span className="text-sm font-medium text-acento">
+        <section className="barra-lote sticky top-[52px] z-20">
+          <span className="text-[12.5px] font-semibold text-acento">
             {selecionados.length} selecionado(s)
           </span>
+          <span className="mono text-[12px] text-suave">{moeda(resumo.selecionado)}</span>
           <button className="btn-primario" onClick={() => setModal("desconto")}>
             Aplicar desconto de contrato
           </button>
@@ -262,7 +294,7 @@ export function TitulosView({
             className="btn"
             disabled={selecionados.length !== 1}
             title={
-              selecionados.length !== 1 ? "Selecione um único título para parcelar" : undefined
+              selecionados.length !== 1 ? "Selecione exatamente 1 título para parcelar" : undefined
             }
             onClick={() => setModal("parcelamento")}
           >
@@ -274,27 +306,30 @@ export function TitulosView({
         </section>
       )}
 
-      <section className="cartao overflow-hidden">
-        <div className="max-h-[62vh] overflow-auto">
+      <section className="cartao cartao-sombra overflow-hidden">
+        <div className="max-h-[calc(100vh-330px)] overflow-auto">
           <table className="tabela">
             <thead>
               <tr>
-                <th className="w-10">
+                <th className="w-9 pl-3">
                   <input
                     type="checkbox"
                     checked={todosMarcados}
-                    onChange={alternarTodos}
+                    onChange={() =>
+                      setSelecionados(todosMarcados ? [] : filtrados.map((t) => t.id))
+                    }
                     aria-label="Selecionar todos"
                   />
                 </th>
                 <th>Cliente</th>
                 <th>Documento</th>
-                <th>Parcela</th>
-                <th>Vencimento</th>
-                <th className="num">Valor original</th>
-                <th className="num">Desconto</th>
-                <th className="num">Saldo</th>
-                <th>Conta corrente</th>
+                <th className="text-center">Parc.</th>
+                <th className="text-right">Emissão</th>
+                <th className="text-right">Vencimento</th>
+                <th className="text-right">Valor orig.</th>
+                <th className="text-right">Desconto</th>
+                <th className="text-right">Saldo</th>
+                <th>Conta</th>
                 <th>Status</th>
                 <th>Boleto</th>
               </tr>
@@ -303,40 +338,56 @@ export function TitulosView({
               {filtrados.map((titulo) => {
                 const contrato = contratoDe(titulo);
                 const marcado = selecionados.includes(titulo.id);
+                const vencido = titulo.status === "VENCIDO";
                 return (
-                  <tr key={titulo.id} className={marcado ? "bg-acento-suave/50" : undefined}>
-                    <td>
+                  <tr key={titulo.id} className={marcado ? "selecionada" : undefined}>
+                    <td className="pl-3">
                       <input
                         type="checkbox"
                         checked={marcado}
-                        onChange={() => alternar(titulo.id)}
+                        onChange={() =>
+                          setSelecionados((atual) =>
+                            atual.includes(titulo.id)
+                              ? atual.filter((x) => x !== titulo.id)
+                              : [...atual, titulo.id],
+                          )
+                        }
                         aria-label={`Selecionar título ${titulo.id}`}
                       />
                     </td>
-                    <td>
-                      <div className="font-medium">{titulo.clienteNome}</div>
-                      <div className="flex items-center gap-2 text-xs text-suave">
-                        <span>{formatarCnpj(titulo.clienteCnpj)}</span>
+                    <td className="max-w-[250px]">
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate font-medium">{titulo.clienteNome}</span>
                         {contrato && (
-                          <span className="selo bg-acento-suave text-acento">
+                          <span className="selo-contrato">
                             Contrato −{percentual(contrato.percentualDesconto)}
                           </span>
                         )}
                       </div>
+                      <div className="mono text-[10.5px] text-fraco">
+                        {formatarCnpj(titulo.clienteCnpj)}
+                      </div>
                     </td>
-                    <td className="whitespace-nowrap">{titulo.numeroDocumento || "—"}</td>
-                    <td className="whitespace-nowrap">{titulo.parcela || "—"}</td>
-                    <td className="whitespace-nowrap">{dataBr(titulo.vencimento)}</td>
+                    <td className="mono text-[12px]">{titulo.numeroDocumento || "—"}</td>
+                    <td className="mono text-center text-[11.5px] text-suave">
+                      {titulo.parcela || "—"}
+                    </td>
+                    <td className="num text-suave">{dataBr(titulo.emissao)}</td>
+                    <td className={`num ${vencido ? "font-semibold text-negativo" : ""}`}>
+                      {dataBr(titulo.vencimento)}
+                    </td>
                     <td className="num">{moeda(titulo.valorOriginal)}</td>
                     <td className="num">
                       {titulo.valorDesconto > 0 ? (
-                        <span className="text-acento">{moeda(titulo.valorDesconto)}</span>
+                        <span className="text-negativo">−{moeda(titulo.valorDesconto)}</span>
                       ) : (
-                        <span className="text-suave">—</span>
+                        <span className="text-fraco">—</span>
                       )}
                     </td>
-                    <td className="num font-medium">{moeda(titulo.saldo)}</td>
-                    <td className="whitespace-nowrap">{titulo.contaCorrenteNome ?? "—"}</td>
+                    <td className="num font-semibold">{moeda(titulo.saldo)}</td>
+                    <td className="max-w-[150px] truncate text-[12px]">
+                      {titulo.contaCorrenteNome ?? "—"}
+                    </td>
                     <td>
                       <StatusSelo status={titulo.status} />
                     </td>
@@ -346,13 +397,13 @@ export function TitulosView({
                           href={titulo.boletoLink}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-xs text-acento underline"
+                          className="text-[11.5px]"
                         >
-                          abrir
+                          emitido ↓
                         </a>
                       ) : (
-                        <span className="text-xs text-suave">
-                          {titulo.boletoEmitido ? "emitido" : "—"}
+                        <span className="mono text-[11px] text-fraco">
+                          {titulo.boletoEmitido ? "emitido" : "não emitido"}
                         </span>
                       )}
                     </td>
@@ -362,8 +413,13 @@ export function TitulosView({
 
               {filtrados.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="py-10 text-center text-sm text-suave">
-                    Nenhum título encontrado com os filtros atuais.
+                  <td colSpan={12} className="py-12 text-center">
+                    <div className="mx-auto max-w-sm rounded-lg border border-dashed border-borda p-6">
+                      <p className="text-[13.5px] font-semibold">Nenhum título encontrado</p>
+                      <p className="mt-1 text-[12.5px] text-fraco">
+                        Ajuste os filtros ou o período de vencimento.
+                      </p>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -371,24 +427,41 @@ export function TitulosView({
           </table>
         </div>
 
-        <div className="flex items-center justify-between gap-2 border-t border-borda px-3 py-2 text-sm">
+        <div className="flex flex-wrap items-center gap-3 border-t border-borda bg-cartao-alt px-3 py-2 text-[12px]">
           <span className="text-suave">
-            Exibindo {filtrados.length} de {titulos.length} título(s) carregados
+            {inicio}–{fim} de {totalRegistros} títulos no período
           </span>
-          <div className="flex gap-2">
+          <label className="flex items-center gap-1.5 text-suave">
+            por página
+            <select
+              className="campo w-[74px]"
+              value={porPagina}
+              onChange={(e) => navegar({ porPagina: e.target.value, pagina: "1" })}
+            >
+              {[50, 100, 200].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="ml-auto flex items-center gap-2">
             <button
               className="btn-mini"
               disabled={pagina <= 1 || emTransicao}
-              onClick={() => irParaPagina(pagina - 1)}
+              onClick={() => navegar({ pagina: String(pagina - 1) })}
             >
-              Anterior
+              ‹ Anterior
             </button>
+            <span className="mono text-[11.5px] text-suave">
+              {pagina} / {totalPaginas}
+            </span>
             <button
               className="btn-mini"
               disabled={pagina >= totalPaginas || emTransicao}
-              onClick={() => irParaPagina(pagina + 1)}
+              onClick={() => navegar({ pagina: String(pagina + 1) })}
             >
-              Próxima
+              Próxima ›
             </button>
           </div>
         </div>
@@ -431,25 +504,34 @@ export function TitulosView({
           onConcluido={aoConcluir}
         />
       )}
-    </div>
+    </>
   );
 }
 
 function Indicador({
   rotulo,
   valor,
+  nota,
   tom,
 }: {
   rotulo: string;
   valor: string;
-  tom?: "negativo" | "acento";
+  nota: string;
+  tom?: "negativo" | "acento" | "alerta";
 }) {
   const cor =
-    tom === "negativo" ? "text-negativo" : tom === "acento" ? "text-acento" : "text-texto";
+    tom === "negativo"
+      ? "text-negativo"
+      : tom === "acento"
+        ? "text-acento"
+        : tom === "alerta"
+          ? "text-alerta"
+          : "text-texto";
   return (
-    <div className="cartao px-4 py-3">
-      <p className="text-xs text-suave">{rotulo}</p>
-      <p className={`mt-1 text-lg font-semibold tabular-nums ${cor}`}>{valor}</p>
+    <div className="cartao flex flex-col gap-1.5 px-3.5 py-3.5">
+      <span className="eyebrow">{rotulo}</span>
+      <span className={`mono text-[21px] leading-none font-semibold ${cor}`}>{valor}</span>
+      <span className="text-[11px] text-fraco">{nota}</span>
     </div>
   );
 }

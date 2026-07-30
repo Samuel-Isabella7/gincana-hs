@@ -5,10 +5,13 @@ import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type {
   AcaoAuditoria,
+  Aprovacao,
   Config,
   Contrato,
   EventoAuditoria,
   Perfil,
+  RegistroParcelamento,
+  StatusAprovacao,
   Usuario,
 } from "./types";
 
@@ -45,6 +48,8 @@ interface ArquivoLocal {
   auditoria: EventoAuditoria[];
   config: Partial<Config>;
   usuarios: Usuario[];
+  aprovacoes: Aprovacao[];
+  parcelamentos: RegistroParcelamento[];
 }
 
 /** Sempre dentro de ./.data para não arrastar o projeto inteiro no build. */
@@ -52,7 +57,14 @@ function caminhoLocal(): string {
   return path.join(process.cwd(), ".data", "store.json");
 }
 
-const VAZIO: ArquivoLocal = { contratos: [], auditoria: [], config: {}, usuarios: [] };
+const VAZIO: ArquivoLocal = {
+  contratos: [],
+  auditoria: [],
+  config: {},
+  usuarios: [],
+  aprovacoes: [],
+  parcelamentos: [],
+};
 
 let escrevendo: Promise<unknown> = Promise.resolve();
 
@@ -345,6 +357,209 @@ export async function listarEventos(
     .filter((e) => (filtro.de ? e.criadoEm >= `${filtro.de}T00:00:00` : true))
     .filter((e) => (filtro.ate ? e.criadoEm <= `${filtro.ate}T23:59:59` : true))
     .slice(0, limite);
+}
+
+// ------------------------------------------------------------------ aprovações
+
+interface AprovacaoRow {
+  id: string;
+  titulo_id: number;
+  cliente_id: number;
+  cliente_nome: string;
+  documento: string;
+  saldo: number;
+  percentual: number;
+  valor_desconto: number;
+  saldo_final: number;
+  justificativa: string;
+  solicitante: string;
+  conta_corrente_id: number | null;
+  data: string;
+  status: StatusAprovacao;
+  criado_em: string;
+  decidido_em: string | null;
+  decisor: string | null;
+  observacao_decisao: string | null;
+}
+
+function paraAprovacao(row: AprovacaoRow): Aprovacao {
+  return {
+    id: row.id,
+    tituloId: Number(row.titulo_id),
+    clienteId: Number(row.cliente_id),
+    clienteNome: row.cliente_nome,
+    documento: row.documento,
+    saldo: Number(row.saldo),
+    percentual: Number(row.percentual),
+    valorDesconto: Number(row.valor_desconto),
+    saldoFinal: Number(row.saldo_final),
+    justificativa: row.justificativa,
+    solicitante: row.solicitante,
+    contaCorrenteId: row.conta_corrente_id != null ? Number(row.conta_corrente_id) : null,
+    data: row.data,
+    status: row.status,
+    criadoEm: row.criado_em,
+    decididoEm: row.decidido_em,
+    decisor: row.decisor,
+    observacaoDecisao: row.observacao_decisao,
+  };
+}
+
+function paraAprovacaoRow(aprovacao: Aprovacao): AprovacaoRow {
+  return {
+    id: aprovacao.id,
+    titulo_id: aprovacao.tituloId,
+    cliente_id: aprovacao.clienteId,
+    cliente_nome: aprovacao.clienteNome,
+    documento: aprovacao.documento,
+    saldo: aprovacao.saldo,
+    percentual: aprovacao.percentual,
+    valor_desconto: aprovacao.valorDesconto,
+    saldo_final: aprovacao.saldoFinal,
+    justificativa: aprovacao.justificativa,
+    solicitante: aprovacao.solicitante,
+    conta_corrente_id: aprovacao.contaCorrenteId,
+    data: aprovacao.data,
+    status: aprovacao.status,
+    criado_em: aprovacao.criadoEm,
+    decidido_em: aprovacao.decididoEm,
+    decisor: aprovacao.decisor,
+    observacao_decisao: aprovacao.observacaoDecisao,
+  };
+}
+
+export async function listarAprovacoes(status?: StatusAprovacao): Promise<Aprovacao[]> {
+  if (supabase) {
+    let consulta = supabase
+      .from("aprovacoes")
+      .select("*")
+      .order("criado_em", { ascending: false })
+      .limit(300);
+    if (status) consulta = consulta.eq("status", status);
+    const { data, error } = await consulta;
+    if (error) throw new Error(`Supabase (aprovacoes): ${error.message}`);
+    return (data as AprovacaoRow[]).map(paraAprovacao);
+  }
+  const dados = await lerLocal();
+  return dados.aprovacoes
+    .filter((a) => (status ? a.status === status : true))
+    .sort((a, b) => b.criadoEm.localeCompare(a.criadoEm));
+}
+
+export async function salvarAprovacao(aprovacao: Aprovacao): Promise<Aprovacao> {
+  if (supabase) {
+    const { error } = await supabase.from("aprovacoes").upsert(paraAprovacaoRow(aprovacao));
+    if (error) throw new Error(`Supabase (aprovacoes): ${error.message}`);
+    return aprovacao;
+  }
+  return gravarLocal((dados) => {
+    const indice = dados.aprovacoes.findIndex((a) => a.id === aprovacao.id);
+    if (indice >= 0) dados.aprovacoes[indice] = aprovacao;
+    else dados.aprovacoes.unshift(aprovacao);
+    return aprovacao;
+  });
+}
+
+export async function buscarAprovacao(id: string): Promise<Aprovacao | null> {
+  const todas = await listarAprovacoes();
+  return todas.find((a) => a.id === id) ?? null;
+}
+
+export async function contarAprovacoesPendentes(): Promise<number> {
+  try {
+    return (await listarAprovacoes("pendente")).length;
+  } catch {
+    return 0;
+  }
+}
+
+export function novaAprovacao(
+  dados: Omit<Aprovacao, "id" | "status" | "criadoEm" | "decididoEm" | "decisor" | "observacaoDecisao">,
+): Aprovacao {
+  return {
+    ...dados,
+    id: randomUUID(),
+    status: "pendente",
+    criadoEm: new Date().toISOString(),
+    decididoEm: null,
+    decisor: null,
+    observacaoDecisao: null,
+  };
+}
+
+// --------------------------------------------------------------- parcelamentos
+
+interface ParcelamentoRow {
+  id: string;
+  titulo_origem: number;
+  cliente_nome: string;
+  quantidade: number;
+  valor_total: number;
+  politica_original: RegistroParcelamento["politicaOriginal"];
+  titulos_gerados: RegistroParcelamento["titulosGerados"];
+  boletos_emitidos: number;
+  usuario: string;
+  criado_em: string;
+}
+
+export async function registrarParcelamento(
+  registro: Omit<RegistroParcelamento, "id" | "criadoEm">,
+): Promise<void> {
+  const completo: RegistroParcelamento = {
+    ...registro,
+    id: randomUUID(),
+    criadoEm: new Date().toISOString(),
+  };
+
+  try {
+    if (supabase) {
+      const { error } = await supabase.from("parcelamentos").insert({
+        id: completo.id,
+        titulo_origem: completo.tituloOrigem,
+        cliente_nome: completo.clienteNome,
+        quantidade: completo.quantidade,
+        valor_total: completo.valorTotal,
+        politica_original: completo.politicaOriginal,
+        titulos_gerados: completo.titulosGerados,
+        boletos_emitidos: completo.boletosEmitidos,
+        usuario: completo.usuario,
+        criado_em: completo.criadoEm,
+      });
+      if (error) throw new Error(error.message);
+      return;
+    }
+    await gravarLocal((dados) => {
+      dados.parcelamentos.unshift(completo);
+      dados.parcelamentos = dados.parcelamentos.slice(0, 1000);
+    });
+  } catch (erro) {
+    console.error("Falha ao registrar parcelamento:", erro);
+  }
+}
+
+export async function listarParcelamentos(): Promise<RegistroParcelamento[]> {
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("parcelamentos")
+      .select("*")
+      .order("criado_em", { ascending: false })
+      .limit(200);
+    if (error) throw new Error(`Supabase (parcelamentos): ${error.message}`);
+    return (data as ParcelamentoRow[]).map((row) => ({
+      id: row.id,
+      tituloOrigem: Number(row.titulo_origem),
+      clienteNome: row.cliente_nome,
+      quantidade: Number(row.quantidade),
+      valorTotal: Number(row.valor_total),
+      politicaOriginal: row.politica_original,
+      titulosGerados: row.titulos_gerados ?? [],
+      boletosEmitidos: Number(row.boletos_emitidos),
+      usuario: row.usuario,
+      criadoEm: row.criado_em,
+    }));
+  }
+  const dados = await lerLocal();
+  return dados.parcelamentos;
 }
 
 // --------------------------------------------------------------------- config

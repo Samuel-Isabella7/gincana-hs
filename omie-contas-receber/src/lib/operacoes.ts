@@ -20,8 +20,16 @@ import type {
   ResultadoParcelamento,
 } from "./operacoes-tipos";
 import { gerarParcelas, MAX_PARCELAS, MIN_PARCELAS } from "./parcelamento";
-import { lerConfig, listarContratos, registrarEvento } from "./store";
-import type { ResultadoItem, Titulo } from "./types";
+import {
+  buscarAprovacao,
+  lerConfig,
+  listarContratos,
+  novaAprovacao,
+  registrarEvento,
+  registrarParcelamento,
+  salvarAprovacao,
+} from "./store";
+import type { Aprovacao, PoliticaOriginal, ResultadoItem, Titulo } from "./types";
 
 export type {
   EntradaDescontos,
@@ -101,12 +109,41 @@ export async function aplicarDescontos(
         previa.valorDesconto > config.limiteDescontoManual &&
         sessao.perfil !== "gestor"
       ) {
+        const aprovacao = novaAprovacao({
+          tituloId: item.tituloId,
+          clienteId: item.clienteId,
+          clienteNome: item.clienteNome ?? `Cliente ${item.clienteId}`,
+          documento: item.documento ?? String(item.tituloId),
+          saldo,
+          percentual: previa.percentual,
+          valorDesconto: previa.valorDesconto,
+          saldoFinal: previa.saldoFinal,
+          justificativa: item.justificativa!.trim(),
+          solicitante: sessao.usuario,
+          contaCorrenteId:
+            entrada.contaCorrenteId ?? item.contaCorrenteTituloId ?? config.contaCorrentePadrao,
+          data,
+        });
+
+        await salvarAprovacao(aprovacao);
+        await registrarEvento({
+          usuario: sessao.usuario,
+          acao: "desconto",
+          entidade: `titulo:${item.tituloId}`,
+          descricao: `Desconto manual de R$ ${previa.valorDesconto.toFixed(2)} enviado para aprovação (limite R$ ${config.limiteDescontoManual.toFixed(2)})`,
+          payloadEnviado: aprovacao,
+          respostaOmie: null,
+          sucesso: true,
+          erro: null,
+        });
+
         resultados.push({
           tituloId: item.tituloId,
-          sucesso: false,
-          mensagem: `Desconto manual acima de R$ ${config.limiteDescontoManual.toFixed(
+          sucesso: true,
+          pendente: true,
+          mensagem: `Acima do limite de R$ ${config.limiteDescontoManual.toFixed(
             2,
-          )} exige aprovação de um gestor.`,
+          )} — enviado para a fila de aprovação do gestor. Nada foi gravado no Omie.`,
         });
         continue;
       }
@@ -186,6 +223,124 @@ export async function aplicarDescontos(
   }
 
   return resultados;
+}
+
+// ------------------------------------------------------- fila de aprovação
+
+export interface DecisaoAprovacao {
+  id: string;
+  acao: "aprovar" | "rejeitar";
+  observacao?: string;
+}
+
+/** Gestor aprova (grava no Omie) ou rejeita um desconto manual pendente. */
+export async function decidirAprovacao(
+  sessao: Sessao,
+  decisao: DecisaoAprovacao,
+): Promise<{ aprovacao: Aprovacao; resultado: ResultadoItem }> {
+  garantirGestor(sessao);
+
+  const aprovacao = await buscarAprovacao(decisao.id);
+  if (!aprovacao) throw new Error("Solicitação não encontrada.");
+  if (aprovacao.status !== "pendente") {
+    throw new Error(`Solicitação já ${aprovacao.status}.`);
+  }
+
+  const agora = new Date().toISOString();
+
+  if (decisao.acao === "rejeitar") {
+    const rejeitada: Aprovacao = {
+      ...aprovacao,
+      status: "rejeitado",
+      decididoEm: agora,
+      decisor: sessao.usuario,
+      observacaoDecisao: decisao.observacao?.trim() || null,
+    };
+    await salvarAprovacao(rejeitada);
+    await registrarEvento({
+      usuario: sessao.usuario,
+      acao: "desconto",
+      entidade: `titulo:${aprovacao.tituloId}`,
+      descricao: `Desconto manual de R$ ${aprovacao.valorDesconto.toFixed(2)} rejeitado (solicitado por ${aprovacao.solicitante})`,
+      payloadEnviado: rejeitada,
+      respostaOmie: null,
+      sucesso: true,
+      erro: null,
+    });
+    return {
+      aprovacao: rejeitada,
+      resultado: {
+        tituloId: aprovacao.tituloId,
+        sucesso: true,
+        mensagem: "Solicitação rejeitada. Nada foi gravado no Omie.",
+      },
+    };
+  }
+
+  const config = await lerConfig();
+  const conta = aprovacao.contaCorrenteId ?? config.contaCorrentePadrao;
+  if (!conta) {
+    throw new Error(
+      "Solicitação sem conta corrente. Defina uma conta padrão em Configurações antes de aprovar.",
+    );
+  }
+
+  try {
+    const { param, resposta } = await lancarDescontoRecebimento({
+      tituloId: aprovacao.tituloId,
+      desconto: aprovacao.valorDesconto,
+      contaCorrenteId: conta,
+      data: aprovacao.data,
+      observacao: `Desconto manual aprovado por ${sessao.usuario}: ${aprovacao.justificativa}`,
+    });
+
+    const aprovada: Aprovacao = {
+      ...aprovacao,
+      status: "aprovado",
+      decididoEm: agora,
+      decisor: sessao.usuario,
+      observacaoDecisao: decisao.observacao?.trim() || null,
+    };
+    await salvarAprovacao(aprovada);
+    await registrarEvento({
+      usuario: sessao.usuario,
+      acao: "desconto",
+      entidade: `titulo:${aprovacao.tituloId}`,
+      descricao: `Desconto manual de R$ ${aprovacao.valorDesconto.toFixed(2)} aprovado e lançado (solicitado por ${aprovacao.solicitante})`,
+      payloadEnviado: param,
+      respostaOmie: resposta,
+      sucesso: true,
+      erro: null,
+    });
+
+    return {
+      aprovacao: aprovada,
+      resultado: {
+        tituloId: aprovacao.tituloId,
+        sucesso: true,
+        mensagem: `Desconto de R$ ${aprovacao.valorDesconto.toFixed(
+          2,
+        )} lançado. Restam R$ ${aprovacao.saldoFinal.toFixed(2)} a receber.`,
+      },
+    };
+  } catch (erro) {
+    const mensagem = mensagemErro(erro);
+    await registrarEvento({
+      usuario: sessao.usuario,
+      acao: "desconto",
+      entidade: `titulo:${aprovacao.tituloId}`,
+      descricao: `Falha ao lançar desconto manual aprovado de R$ ${aprovacao.valorDesconto.toFixed(2)}`,
+      payloadEnviado: aprovacao,
+      respostaOmie: null,
+      sucesso: false,
+      erro: mensagem,
+    });
+    // Continua pendente para o gestor tentar de novo.
+    return {
+      aprovacao,
+      resultado: { tituloId: aprovacao.tituloId, sucesso: false, mensagem },
+    };
+  }
 }
 
 // ------------------------------------------------------------ conta corrente
@@ -383,34 +538,77 @@ export async function parcelarTitulo(
   }
 
   const todasCriadas = resultado.parcelas.every((p) => p.sucesso);
+  const politica: PoliticaOriginal = entrada.politicaOriginal ?? "baixado";
 
-  if (entrada.excluirOriginal) {
-    if (!todasCriadas) {
+  if (!todasCriadas) {
+    resultado.mensagemOriginal =
+      "Título original mantido: alguma parcela falhou. Corrija as falhas antes de baixar ou excluir o original.";
+  } else if (politica === "excluido") {
+    try {
+      const { param, resposta } = await excluirTitulo(entrada.tituloId);
+      resultado.originalExcluido = true;
+      resultado.mensagemOriginal = "Título original excluído do Omie.";
+      await registrarEvento({
+        usuario: sessao.usuario,
+        acao: "parcelamento",
+        entidade: `titulo:${entrada.tituloId}`,
+        descricao: "Título original excluído após o parcelamento",
+        payloadEnviado: param,
+        respostaOmie: resposta,
+        sucesso: true,
+        erro: null,
+      });
+    } catch (erro) {
+      resultado.mensagemOriginal = `Parcelas criadas, mas o título original não pôde ser excluído: ${mensagemErro(erro)}`;
+      await registrarEvento({
+        usuario: sessao.usuario,
+        acao: "parcelamento",
+        entidade: `titulo:${entrada.tituloId}`,
+        descricao: "Falha ao excluir título original após o parcelamento",
+        payloadEnviado: { tituloId: entrada.tituloId },
+        respostaOmie: null,
+        sucesso: false,
+        erro: mensagemErro(erro),
+      });
+    }
+  } else {
+    // "Baixar como parcelado": recebimento de valor zero com desconto igual ao
+    // saldo, zerando o título sem registrar entrada de dinheiro.
+    const config = await lerConfig();
+    const contaBaixa = contaCorrente ?? config.contaCorrentePadrao;
+    if (!contaBaixa) {
       resultado.mensagemOriginal =
-        "Título original mantido: alguma parcela falhou. Corrija as falhas antes de excluir.";
+        "Parcelas criadas, mas o título original segue aberto: defina uma conta corrente padrão para baixá-lo.";
     } else {
       try {
-        const { param, resposta } = await excluirTitulo(entrada.tituloId);
-        resultado.originalExcluido = true;
-        resultado.mensagemOriginal = "Título original excluído do Omie.";
+        const { param, resposta } = await lancarDescontoRecebimento({
+          tituloId: entrada.tituloId,
+          desconto: saldo,
+          contaCorrenteId: contaBaixa,
+          data: hoje(),
+          observacao: `Título parcelado em ${entrada.quantidade}x pelo sistema — saldo transferido para as novas parcelas.`,
+        });
+        resultado.originalBaixado = true;
+        resultado.mensagemOriginal =
+          "Título original baixado como parcelado (saldo zerado, sem entrada de dinheiro).";
         await registrarEvento({
           usuario: sessao.usuario,
           acao: "parcelamento",
           entidade: `titulo:${entrada.tituloId}`,
-          descricao: "Título original excluído após o parcelamento",
+          descricao: `Título original baixado como parcelado (saldo ${saldo.toFixed(2)} zerado)`,
           payloadEnviado: param,
           respostaOmie: resposta,
           sucesso: true,
           erro: null,
         });
       } catch (erro) {
-        resultado.mensagemOriginal = `Parcelas criadas, mas o título original não pôde ser excluído: ${mensagemErro(erro)}`;
+        resultado.mensagemOriginal = `Parcelas criadas, mas o título original não pôde ser baixado: ${mensagemErro(erro)}`;
         await registrarEvento({
           usuario: sessao.usuario,
           acao: "parcelamento",
           entidade: `titulo:${entrada.tituloId}`,
-          descricao: "Falha ao excluir título original após o parcelamento",
-          payloadEnviado: { tituloId: entrada.tituloId },
+          descricao: "Falha ao baixar título original após o parcelamento",
+          payloadEnviado: { tituloId: entrada.tituloId, desconto: saldo },
           respostaOmie: null,
           sucesso: false,
           erro: mensagemErro(erro),
@@ -418,6 +616,25 @@ export async function parcelarTitulo(
       }
     }
   }
+
+  await registrarParcelamento({
+    tituloOrigem: entrada.tituloId,
+    clienteNome: entrada.clienteNome ?? `Cliente ${entrada.clienteId}`,
+    quantidade: entrada.quantidade,
+    valorTotal: resultado.parcelas.reduce((s, p) => s + p.valor, 0),
+    politicaOriginal: politica,
+    titulosGerados: resultado.parcelas.map((p) => ({
+      numero: p.numero,
+      tituloId: p.tituloId,
+      vencimento: p.vencimento,
+      valor: p.valor,
+      boleto: Boolean(p.boleto?.link || p.boleto?.linhaDigitavel),
+    })),
+    boletosEmitidos: resultado.parcelas.filter(
+      (p) => p.boleto?.link || p.boleto?.linhaDigitavel,
+    ).length,
+    usuario: sessao.usuario,
+  });
 
   return resultado;
 }

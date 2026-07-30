@@ -1,96 +1,210 @@
 @import "tailwindcss";
 
+/*
+ * Tokens do handoff de design (Kalena Foods · Contas a Receber).
+ * Tema claro no :root, escuro em :root[data-theme="dark"].
+ */
 :root {
-  --fundo: #f5f7fa;
-  --cartao: #ffffff;
-  --cartao-alt: #f8fafc;
-  --borda: #e3e8ef;
-  --texto: #101828;
-  --suave: #5b6779;
-  --acento: #1d4ed8;
-  --acento-suave: #eaf0ff;
-  --positivo: #067647;
-  --positivo-suave: #e6f6ec;
-  --alerta: #b54708;
-  --alerta-suave: #fdf3e7;
-  --negativo: #b42318;
-  --negativo-suave: #fdeceb;
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --panel2: #fafbfc;
+  --panel3: #f1f4f7;
+  --line: #e2e7ed;
+  --line2: #edf0f4;
+  --text: #101720;
+  --text2: #5a6472;
+  --text3: #8b95a1;
+  --accent: oklch(0.52 0.15 255);
+  --accent-h: oklch(0.46 0.16 255);
+  --accent-soft: oklch(0.96 0.03 255);
+  --accent-line: oklch(0.86 0.06 255);
+  --pos: oklch(0.52 0.12 155);
+  --pos-soft: oklch(0.96 0.04 155);
+  --neg: oklch(0.55 0.17 25);
+  --neg-soft: oklch(0.96 0.04 25);
+  --warn: oklch(0.62 0.13 75);
+  --warn-soft: oklch(0.96 0.05 75);
+  --shadow:
+    0 1px 2px rgba(16, 23, 32, 0.05), 0 8px 24px -12px rgba(16, 23, 32, 0.18);
+  /* densidade da tabela: 6px compacta · 10px média · 14px confortável */
+  --rowpad: 10px;
+  --rowfs: 13px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --fundo: #0b0f16;
-    --cartao: #121822;
-    --cartao-alt: #161e2a;
-    --borda: #26303f;
-    --texto: #e7ecf3;
-    --suave: #93a1b5;
-    --acento: #5b8bff;
-    --acento-suave: #16233c;
-    --positivo: #4ade80;
-    --positivo-suave: #10261a;
-    --alerta: #fbbf24;
-    --alerta-suave: #2a2011;
-    --negativo: #f87171;
-    --negativo-suave: #2c1414;
-  }
+:root[data-theme="dark"] {
+  --bg: #0d1116;
+  --panel: #141a21;
+  --panel2: #181f27;
+  --panel3: #1e262f;
+  --line: #252e39;
+  --line2: #1e262f;
+  --text: #e7ecf2;
+  --text2: #98a3b0;
+  --text3: #6d7885;
+  --accent: oklch(0.65 0.14 255);
+  --accent-h: oklch(0.72 0.13 255);
+  --accent-soft: oklch(0.28 0.06 255);
+  --accent-line: oklch(0.4 0.08 255);
+  --pos: oklch(0.72 0.13 155);
+  --pos-soft: oklch(0.28 0.05 155);
+  --neg: oklch(0.68 0.15 25);
+  --neg-soft: oklch(0.3 0.06 25);
+  --warn: oklch(0.76 0.12 75);
+  --warn-soft: oklch(0.3 0.06 75);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -14px rgba(0, 0, 0, 0.7);
 }
 
 @theme inline {
-  --color-fundo: var(--fundo);
-  --color-cartao: var(--cartao);
-  --color-cartao-alt: var(--cartao-alt);
-  --color-borda: var(--borda);
-  --color-texto: var(--texto);
-  --color-suave: var(--suave);
-  --color-acento: var(--acento);
-  --color-acento-suave: var(--acento-suave);
-  --color-positivo: var(--positivo);
-  --color-positivo-suave: var(--positivo-suave);
-  --color-alerta: var(--alerta);
-  --color-alerta-suave: var(--alerta-suave);
-  --color-negativo: var(--negativo);
-  --color-negativo-suave: var(--negativo-suave);
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
-    sans-serif;
+  --color-fundo: var(--bg);
+  --color-cartao: var(--panel);
+  --color-cartao-alt: var(--panel2);
+  --color-cartao-3: var(--panel3);
+  --color-borda: var(--line);
+  --color-borda-2: var(--line2);
+  --color-texto: var(--text);
+  --color-suave: var(--text2);
+  --color-fraco: var(--text3);
+  --color-acento: var(--accent);
+  --color-acento-forte: var(--accent-h);
+  --color-acento-suave: var(--accent-soft);
+  --color-acento-linha: var(--accent-line);
+  --color-positivo: var(--pos);
+  --color-positivo-suave: var(--pos-soft);
+  --color-negativo: var(--neg);
+  --color-negativo-suave: var(--neg-soft);
+  --color-alerta: var(--warn);
+  --color-alerta-suave: var(--warn-soft);
+  --font-sans: var(--fonte-plex), "IBM Plex Sans", Helvetica, sans-serif;
+  --font-mono: var(--fonte-plex-mono), "IBM Plex Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
-  background: var(--fundo);
-  color: var(--texto);
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
   font-family: var(--font-sans);
+  font-size: 13px;
   -webkit-font-smoothing: antialiased;
 }
 
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent-h);
+  text-decoration: underline;
+}
+
+input,
+select,
+button,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+input::placeholder {
+  color: var(--text3);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes slidein {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /*
- * Classes de componente escritas em CSS puro: no Tailwind 4 o @apply não
- * resolve classes definidas pelo próprio projeto, o que quebraria as variantes.
+ * Classes de componente em CSS puro: no Tailwind 4 o @apply não resolve
+ * classes do próprio projeto, o que quebraria as variantes.
  */
 @layer components {
+  .mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
   .cartao {
-    border: 1px solid var(--borda);
-    border-radius: 0.75rem;
-    background: var(--cartao);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+
+  .cartao-sombra {
+    box-shadow: var(--shadow);
+  }
+
+  .eyebrow {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text3);
   }
 
   .rotulo {
     display: block;
-    margin-bottom: 0.25rem;
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--suave);
+    margin-bottom: 4px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text3);
   }
 
   .campo,
   .campo-num {
     width: 100%;
-    border: 1px solid var(--borda);
-    border-radius: 0.5rem;
-    background: var(--cartao);
-    padding: 0.5rem 0.75rem;
-    font-size: 0.875rem;
-    color: var(--texto);
+    height: 30px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    padding: 0 8px;
+    font-size: 12.5px;
+    color: var(--text);
     outline: none;
     transition:
       border-color 120ms ease,
@@ -98,14 +212,27 @@ body {
   }
 
   .campo:focus,
-  .campo-num:focus {
-    border-color: var(--acento);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--acento) 18%, transparent);
+  .campo-num:focus,
+  textarea.campo:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
 
   .campo-num {
     text-align: right;
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+  }
+
+  textarea.campo {
+    height: auto;
+    padding: 7px 8px;
+    line-height: 1.5;
+  }
+
+  .campo-alto {
+    height: 38px;
+    font-size: 13px;
   }
 
   .btn,
@@ -115,24 +242,27 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
+    gap: 6px;
+    height: 30px;
+    padding: 0 11px;
     cursor: pointer;
-    border: 1px solid var(--borda);
-    border-radius: 0.5rem;
-    background: var(--cartao);
-    padding: 0.5rem 0.75rem;
-    font-size: 0.875rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    font-size: 12.5px;
     font-weight: 500;
-    color: var(--texto);
+    color: var(--text);
+    white-space: nowrap;
     transition:
       background 120ms ease,
-      opacity 120ms ease;
-    white-space: nowrap;
+      border-color 120ms ease,
+      color 120ms ease;
   }
 
   .btn:hover,
   .btn-mini:hover {
-    background: var(--cartao-alt);
+    border-color: var(--accent-line);
+    color: var(--accent);
   }
 
   .btn:disabled,
@@ -140,87 +270,172 @@ body {
   .btn-perigo:disabled,
   .btn-mini:disabled {
     cursor: not-allowed;
-    opacity: 0.5;
+    opacity: 0.55;
+  }
+
+  .btn:disabled:hover,
+  .btn-mini:disabled:hover {
+    border-color: var(--line);
+    color: var(--text);
   }
 
   .btn-primario {
     border-color: transparent;
-    background: var(--acento);
+    background: var(--accent);
     color: #fff;
+    font-weight: 600;
+  }
+
+  .btn-primario:hover {
+    background: var(--accent-h);
   }
 
   .btn-perigo {
     border-color: transparent;
-    background: var(--negativo);
+    background: var(--neg);
     color: #fff;
+    font-weight: 600;
   }
 
-  .btn-primario:hover,
   .btn-perigo:hover {
     opacity: 0.9;
   }
 
   .btn-mini {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.75rem;
+    height: 24px;
+    padding: 0 8px;
+    font-size: 11.5px;
+  }
+
+  .btn-modal {
+    height: 32px;
   }
 
   .selo {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
-    border-radius: 9999px;
-    padding: 0.125rem 0.5rem;
-    font-size: 0.75rem;
-    font-weight: 500;
+    gap: 4px;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  .selo-contrato {
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-size: 9.5px;
+    font-weight: 600;
+    background: var(--pos-soft);
+    color: var(--pos);
+    white-space: nowrap;
   }
 
   .tabela {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.875rem;
+    font-size: var(--rowfs);
   }
 
   .tabela th {
     position: sticky;
     top: 0;
-    z-index: 10;
-    border-bottom: 1px solid var(--borda);
-    background: var(--cartao-alt);
-    padding: 0.5rem 0.75rem;
+    z-index: 2;
+    background: var(--panel2);
+    border-bottom: 1px solid var(--line);
+    padding: 7px 10px;
     text-align: left;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--suave);
+    color: var(--text3);
     white-space: nowrap;
   }
 
   .tabela td {
-    border-bottom: 1px solid var(--borda);
-    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--line2);
+    padding: var(--rowpad) 10px;
     vertical-align: middle;
   }
 
   .tabela tbody tr:hover {
-    background: var(--cartao-alt);
+    background: var(--panel3);
+  }
+
+  .tabela tbody tr.selecionada,
+  .tabela tbody tr.selecionada:hover {
+    background: var(--accent-soft);
   }
 
   .tabela tfoot td {
-    background: var(--cartao-alt);
+    background: var(--panel2);
+    font-weight: 600;
   }
 
   .num {
     text-align: right;
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
 
   .titulo-secao {
-    font-size: 1.125rem;
+    font-size: 14.5px;
     font-weight: 600;
-    letter-spacing: -0.01em;
-    color: var(--texto);
+    color: var(--text);
+  }
+
+  .aviso {
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .aviso-alerta {
+    background: var(--warn-soft);
+    color: var(--warn);
+  }
+
+  .aviso-erro {
+    background: var(--neg-soft);
+    color: var(--neg);
+  }
+
+  .aviso-ok {
+    background: var(--pos-soft);
+    color: var(--pos);
+  }
+
+  .barra-lote {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 12px;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-line);
+    border-radius: 8px;
+    animation: slidein 0.16s ease-out;
+  }
+
+  .modal-card {
+    animation: pop 0.18s ease-out;
+    box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.5);
+    border-radius: 10px;
+  }
+
+  .ponto {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex: none;
+  }
+
+  .ponto-pulsante {
+    animation: pulse 2s infinite;
   }
 }

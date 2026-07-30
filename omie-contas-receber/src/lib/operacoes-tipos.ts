@@ -33,6 +33,7 @@ export interface EntradaDescontos {
 export interface EntradaParcelamento {
   tituloId: number;
   clienteId: number;
+  clienteNome?: string;
   saldo: number;
   documento?: string;
   quantidade: number;
@@ -41,7 +42,13 @@ export interface EntradaParcelamento {
   acrescimoPercentual?: number;
   datas?: string[];
   contaCorrenteId?: number | null;
-  excluirOriginal?: boolean;
+  /**
+   * O que fazer com o título original:
+   * - "baixado": lança um recebimento de valor zero com desconto igual ao saldo,
+   *   zerando o título (fica liquidado, substituído pelas parcelas).
+   * - "excluido": remove o título do Omie via ExcluirContaReceber.
+   */
+  politicaOriginal?: "baixado" | "excluido";
   emitirBoletos?: boolean;
 }
 
@@ -56,5 +63,6 @@ export interface ResultadoParcelamento {
     boleto?: { link: string | null; linhaDigitavel: string | null } | null;
   }>;
   originalExcluido: boolean;
+  originalBaixado?: boolean;
   mensagemOriginal: string | null;
 }
