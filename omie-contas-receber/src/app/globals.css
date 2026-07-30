@@ -1,0 +1,226 @@
+@import "tailwindcss";
+
+:root {
+  --fundo: #f5f7fa;
+  --cartao: #ffffff;
+  --cartao-alt: #f8fafc;
+  --borda: #e3e8ef;
+  --texto: #101828;
+  --suave: #5b6779;
+  --acento: #1d4ed8;
+  --acento-suave: #eaf0ff;
+  --positivo: #067647;
+  --positivo-suave: #e6f6ec;
+  --alerta: #b54708;
+  --alerta-suave: #fdf3e7;
+  --negativo: #b42318;
+  --negativo-suave: #fdeceb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fundo: #0b0f16;
+    --cartao: #121822;
+    --cartao-alt: #161e2a;
+    --borda: #26303f;
+    --texto: #e7ecf3;
+    --suave: #93a1b5;
+    --acento: #5b8bff;
+    --acento-suave: #16233c;
+    --positivo: #4ade80;
+    --positivo-suave: #10261a;
+    --alerta: #fbbf24;
+    --alerta-suave: #2a2011;
+    --negativo: #f87171;
+    --negativo-suave: #2c1414;
+  }
+}
+
+@theme inline {
+  --color-fundo: var(--fundo);
+  --color-cartao: var(--cartao);
+  --color-cartao-alt: var(--cartao-alt);
+  --color-borda: var(--borda);
+  --color-texto: var(--texto);
+  --color-suave: var(--suave);
+  --color-acento: var(--acento);
+  --color-acento-suave: var(--acento-suave);
+  --color-positivo: var(--positivo);
+  --color-positivo-suave: var(--positivo-suave);
+  --color-alerta: var(--alerta);
+  --color-alerta-suave: var(--alerta-suave);
+  --color-negativo: var(--negativo);
+  --color-negativo-suave: var(--negativo-suave);
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+}
+
+body {
+  background: var(--fundo);
+  color: var(--texto);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Classes de componente escritas em CSS puro: no Tailwind 4 o @apply não
+ * resolve classes definidas pelo próprio projeto, o que quebraria as variantes.
+ */
+@layer components {
+  .cartao {
+    border: 1px solid var(--borda);
+    border-radius: 0.75rem;
+    background: var(--cartao);
+  }
+
+  .rotulo {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--suave);
+  }
+
+  .campo,
+  .campo-num {
+    width: 100%;
+    border: 1px solid var(--borda);
+    border-radius: 0.5rem;
+    background: var(--cartao);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--texto);
+    outline: none;
+    transition:
+      border-color 120ms ease,
+      box-shadow 120ms ease;
+  }
+
+  .campo:focus,
+  .campo-num:focus {
+    border-color: var(--acento);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--acento) 18%, transparent);
+  }
+
+  .campo-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .btn,
+  .btn-primario,
+  .btn-perigo,
+  .btn-mini {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    border: 1px solid var(--borda);
+    border-radius: 0.5rem;
+    background: var(--cartao);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--texto);
+    transition:
+      background 120ms ease,
+      opacity 120ms ease;
+    white-space: nowrap;
+  }
+
+  .btn:hover,
+  .btn-mini:hover {
+    background: var(--cartao-alt);
+  }
+
+  .btn:disabled,
+  .btn-primario:disabled,
+  .btn-perigo:disabled,
+  .btn-mini:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  .btn-primario {
+    border-color: transparent;
+    background: var(--acento);
+    color: #fff;
+  }
+
+  .btn-perigo {
+    border-color: transparent;
+    background: var(--negativo);
+    color: #fff;
+  }
+
+  .btn-primario:hover,
+  .btn-perigo:hover {
+    opacity: 0.9;
+  }
+
+  .btn-mini {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .selo {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 9999px;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+
+  .tabela {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+
+  .tabela th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    border-bottom: 1px solid var(--borda);
+    background: var(--cartao-alt);
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--suave);
+    white-space: nowrap;
+  }
+
+  .tabela td {
+    border-bottom: 1px solid var(--borda);
+    padding: 0.5rem 0.75rem;
+    vertical-align: middle;
+  }
+
+  .tabela tbody tr:hover {
+    background: var(--cartao-alt);
+  }
+
+  .tabela tfoot td {
+    background: var(--cartao-alt);
+  }
+
+  .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .titulo-secao {
+    font-size: 1.125rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--texto);
+  }
+}

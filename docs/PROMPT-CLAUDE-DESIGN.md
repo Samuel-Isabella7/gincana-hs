@@ -26,8 +26,10 @@ Autenticação por `app_key` + `app_secret` guardados em variáveis de ambiente.
 - Contas correntes: `geral/contacorrente` → `ListarContasCorrentes`
 
 Regras de integração:
+- **O desconto é lançado pela tela "Registrar Recebimento" do Omie, no campo Desconto, com Valor do Recebimento = 0** (`LancarRecebimento` com `valor: 0`, `desconto: <valor>`, `juros: 0`, `multa: 0`, mais a conta corrente e a data). O título **não é quitado**: o saldo cai apenas o valor do desconto e o restante continua a receber. Ex.: título de R$ 2.101,00 com desconto de R$ 100,00 fica com R$ 2.001,00 em aberto ("Restará R$ 2.001,00 a receber da conta").
 - O boleto é **sempre gerado pela API do Omie** — o sistema nunca desenha boleto próprio; só exibe/baixa o PDF ou link que o Omie devolve.
-- **Trocar banco = apenas alterar a conta corrente do título** (`nCodCC`) via `AlterarContaReceber`. Não cancela nem reemite boleto. Se o título já tiver boleto emitido, mostrar aviso claro: "este título já possui boleto emitido no banco X — trocar a conta não invalida o boleto existente".
+- **Trocar banco = apenas alterar a conta corrente do título** (`id_conta_corrente`) via `AlterarContaReceber`. Não cancela nem reemite boleto. Se o título já tiver boleto emitido, mostrar aviso claro: "este título já possui boleto emitido no banco X — trocar a conta não invalida o boleto existente".
+- O valor do desconto é sempre recalculado no servidor a partir do percentual do contrato cadastrado; o número que veio da tela nunca é aceito como verdade para clientes com contrato.
 - Toda escrita no Omie é registrada no log de auditoria com payload enviado e resposta recebida.
 
 ## Telas
@@ -45,7 +47,7 @@ Tabela densa, paginada, com seleção múltipla por checkbox. Colunas: cliente (
 
 Ao clicar, abre um modal de **pré-visualização antes de gravar nada**:
 
-- Tabela com uma linha por título: cliente, valor original, % de contrato do cliente, valor do desconto calculado, valor líquido resultante.
+- Tabela com uma linha por título: cliente, saldo atual, % de contrato do cliente, valor do desconto calculado e quanto **restará** a receber depois do lançamento.
 - Títulos de clientes sem contrato cadastrado aparecem em seção separada "sem desconto de contrato", desmarcados, com opção de aplicar desconto manual com justificativa obrigatória.
 - Campo opcional "trocar conta corrente destes títulos para:" com select de contas correntes do Omie — aplicado na mesma operação.
 - Totais no rodapé do modal: soma dos valores originais, soma dos descontos, soma líquida.
